@@ -6,3 +6,7 @@
   "api_key": "None"
 },
 ```
+
+## TODO
+
+* <https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning>
