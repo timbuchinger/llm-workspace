@@ -1,0 +1,4 @@
+requests
+langchain-ollama
+langchain-chroma
+langchain-community
