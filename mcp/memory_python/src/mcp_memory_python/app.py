@@ -42,7 +42,7 @@ class Relation:
         return {
             "from": self.from_entity,
             "to": self.to_entity,
-            "relationType": self.relation_type,
+            "relation_type": self.relation_type,
         }
 
 
@@ -50,22 +50,6 @@ class KnowledgeGraph:
     def __init__(self):
         self.entities = []
         self.relations = []
-
-    # def save_to_mongodb(self):
-    #     client = MongoClient(MONGO_URI)
-    #     db = client[DATABASE_NAME]
-    #     entities_collection = db[ENTITIES_COLLECTION]
-    #     relations_collection = db[RELATIONS_COLLECTION]
-
-    #     # Clear existing data
-    #     entities_collection.delete_many({})
-    #     relations_collection.delete_many({})
-
-    #     # Insert entities and relations
-    #     entities_collection.insert_many([entity.to_dict() for entity in self.entities])
-    #     relations_collection.insert_many(
-    #         [relation.to_dict() for relation in self.relations]
-    #     )
 
     def load_from_mongodb(self):
         client = MongoClient(MONGO_URI)
@@ -78,7 +62,11 @@ class KnowledgeGraph:
             for entity in entities_collection.find()
         ]
         self.relations = [
-            Relation(relation["from"], relation["to"], relation["relationType"])
+            Relation(
+                relation["from_entity"],
+                relation["to_entity"],
+                relation["relation_type"],
+            )
             for relation in relations_collection.find()
         ]
 
@@ -93,6 +81,9 @@ class KnowledgeGraphManager:
             print(f"Error loading graph: {e}")
             return KnowledgeGraph()
 
+    async def readGraph(self) -> KnowledgeGraph:
+        return self.loadGraph()
+
     async def create_entities(self, entities: list[Entity]) -> list[Entity]:
         graph = await self.load_graph()
 
@@ -102,164 +93,156 @@ class KnowledgeGraphManager:
         entities_collection = db[ENTITIES_COLLECTION]
 
         for entity in entities:
-            if not entities_collection.find_one({"name": entity.name}):
-                entities_collection.insert_one(entity.to_dict())
+            if not entities_collection.find_one({"name": entity["name"]}):
+                entities_collection.insert_one(entity)
                 new_entities.append(entity)
 
         return new_entities
 
-        graph.entities.extend(entities)
-        # graph.save_to_mongodb()
+    async def create_relations(self, relations: list[Relation]) -> list[Relation]:
+        graph = await self.load_graph()
 
-    async def readGraph(self) -> KnowledgeGraph:
-        return self.loadGraph()
+        new_relations = []
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        relations_collection = db[RELATIONS_COLLECTION]
 
+        for relation in relations:
+            if not relations_collection.find_one(
+                {
+                    "from_entity": relation["from_entity"],
+                    "to_entity": relation["to_entity"],
+                    "relation_type": relation["relation_type"],
+                }
+            ):
+                relations_collection.insert_one(relation)
+                new_relations.append(relation)
 
-#       async createEntities(entities: Entity[]): Promise<Entity[]> {
-#     const graph = await this.loadGraph();
-#     const newEntities = entities.filter(
-#       (e) =>
-#         !graph.entities.some((existingEntity) => existingEntity.name === e.name)
-#     );
-#     graph.entities.push(...newEntities);
-#     await this.saveGraph(graph);
-#     return newEntities;
-#   }
+        return new_relations
 
-#   async createRelations(relations: Relation[]): Promise<Relation[]> {
-#     const graph = await this.loadGraph();
-#     const newRelations = relations.filter(
-#       (r) =>
-#         !graph.relations.some(
-#           (existingRelation) =>
-#             existingRelation.from === r.from &&
-#             existingRelation.to === r.to &&
-#             existingRelation.relationType === r.relationType
-#         )
-#     );
-#     graph.relations.push(...newRelations);
-#     await this.saveGraph(graph);
-#     return newRelations;
-#   }
+    async def add_observations(self, entity_name: str, observations: list[str]) -> dict:
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        entities_collection = db[ENTITIES_COLLECTION]
 
-#   async addObservations(
-#     observations: { entityName: string; contents: string[] }[]
-#   ): Promise<{ entityName: string; addedObservations: string[] }[]> {
-#     const graph = await this.loadGraph();
-#     console.log("observations:", observations);
-#     console.log("Type of observations:", typeof observations);
-#     const results = observations.map((o) => {
-#       const entity = graph.entities.find((e) => e.name === o.entityName);
-#       if (!entity) {
-#         throw new Error(`Entity with name ${o.entityName} not found`);
-#       }
-#       const newObservations = o.contents.filter(
-#         (content) => !entity.observations.includes(content)
-#       );
-#       entity.observations.push(...newObservations);
-#       return { entityName: o.entityName, addedObservations: newObservations };
-#     });
-#     await this.saveGraph(graph);
-#     return results;
-#   }
+        entity = entities_collection.find_one({"name": entity_name})
+        if entity:
+            new_observations = [
+                obs for obs in observations if obs not in entity["observations"]
+            ]
+            entities_collection.update_one(
+                {"name": entity_name},
+                {"$set": {"observations": entity["observations"] + new_observations}},
+            )
+            return {"entity_name": entity_name, "added_observations": new_observations}
+        else:
+            raise Exception(f"Entity with name {entity_name} not found")
 
-#   async deleteEntities(entityNames: string[]): Promise<void> {
-#     const graph = await this.loadGraph();
-#     graph.entities = graph.entities.filter(
-#       (e) => !entityNames.includes(e.name)
-#     );
-#     graph.relations = graph.relations.filter(
-#       (r) => !entityNames.includes(r.from) && !entityNames.includes(r.to)
-#     );
-#     await this.saveGraph(graph);
-#   }
+    async def delete_entities(self, entity_names: list[str]) -> None:
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        entities_collection = db[ENTITIES_COLLECTION]
+        relations_collection = db[RELATIONS_COLLECTION]
 
-#   async deleteObservations(
-#     deletions: { entityName: string; observations: string[] }[]
-#   ): Promise<void> {
-#     const graph = await this.loadGraph();
-#     deletions.forEach((d) => {
-#       const entity = graph.entities.find((e) => e.name === d.entityName);
-#       if (entity) {
-#         entity.observations = entity.observations.filter(
-#           (o) => !d.observations.includes(o)
-#         );
-#       }
-#     });
-#     await this.saveGraph(graph);
-#   }
+        entities_collection.delete_many({"name": {"$in": entity_names}})
+        relations_collection.delete_many(
+            {
+                "$or": [
+                    {"from_entity": {"$in": entity_names}},
+                    {"to_entity": {"$in": entity_names}},
+                ]
+            }
+        )
 
-#   async deleteRelations(relations: Relation[]): Promise<void> {
-#     const graph = await this.loadGraph();
-#     graph.relations = graph.relations.filter(
-#       (r) =>
-#         !relations.some(
-#           (delRelation) =>
-#             r.from === delRelation.from &&
-#             r.to === delRelation.to &&
-#             r.relationType === delRelation.relationType
-#         )
-#     );
-#     await this.saveGraph(graph);
-#   }
+    async def delete_observations(
+        self, entity_name: str, observations: list[str]
+    ) -> None:
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        entities_collection = db[ENTITIES_COLLECTION]
 
-#   async readGraph(): Promise<KnowledgeGraph> {
-#     return this.loadGraph();
-#   }
+        entity = entities_collection.find_one({"name": entity_name})
+        if entity:
+            # Remove the specified observations from the entity's observations
+            updated_observations = [
+                observation
+                for observation in entity["observations"]
+                if observation not in observations
+            ]
+            entities_collection.update_one(
+                {"name": entity_name},
+                {"$set": {"observations": updated_observations}},
+            )
 
-#   // Very basic search function
-#   async searchNodes(query: string): Promise<KnowledgeGraph> {
-#     const graph = await this.loadGraph();
+    async def delete_relations(self, relations: list[Relation]) -> None:
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        relations_collection = db[RELATIONS_COLLECTION]
 
-#     // Filter entities
-#     const filteredEntities = graph.entities.filter(
-#       (e) =>
-#         e.name.toLowerCase().includes(query.toLowerCase()) ||
-#         e.entityType.toLowerCase().includes(query.toLowerCase()) ||
-#         e.observations.some((o) =>
-#           o.toLowerCase().includes(query.toLowerCase())
-#         )
-#     );
+        for relation in relations:
+            relations_collection.delete_one(relation)
 
-#     // Create a Set of filtered entity names for quick lookup
-#     const filteredEntityNames = new Set(filteredEntities.map((e) => e.name));
+    async def search_nodes(self, query: str) -> KnowledgeGraph:
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        entities_collection = db[ENTITIES_COLLECTION]
+        relations_collection = db[RELATIONS_COLLECTION]
 
-#     // Filter relations to only include those between filtered entities
-#     const filteredRelations = graph.relations.filter(
-#       (r) => filteredEntityNames.has(r.from) && filteredEntityNames.has(r.to)
-#     );
+        filtered_entities = list(
+            entities_collection.find(
+                {
+                    "$or": [
+                        {"name": {"$regex": f".*{query}.*", "$options": "i"}},
+                        {"entityType": {"$regex": f".*{query}.*", "$options": "i"}},
+                        {"observations": {"$regex": f".*{query}.*", "$options": "i"}},
+                    ]
+                }
+            )
+        )
 
-#     const filteredGraph: KnowledgeGraph = {
-#       entities: filteredEntities,
-#       relations: filteredRelations,
-#     };
+        filtered_entity_names = [entity["name"] for entity in filtered_entities]
 
-#     return filteredGraph;
-#   }
+        filtered_relations = list(
+            relations_collection.find(
+                {
+                    "$or": [
+                        {"from_entity": {"$in": filtered_entity_names}},
+                        {"to_entity": {"$in": filtered_entity_names}},
+                    ]
+                }
+            )
+        )
 
-#   async openNodes(names: string[]): Promise<KnowledgeGraph> {
-#     const graph = await this.loadGraph();
+        filtered_graph = KnowledgeGraph()
+        filtered_graph.entities = filtered_entities
+        filtered_graph.relations = filtered_relations
 
-#     // Filter entities
-#     const filteredEntities = graph.entities.filter((e) =>
-#       names.includes(e.name)
-#     );
+        return filtered_graph
 
-#     // Create a Set of filtered entity names for quick lookup
-#     const filteredEntityNames = new Set(filteredEntities.map((e) => e.name));
+    async def open_nodes(self, names: list[str]) -> KnowledgeGraph:
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        entities_collection = db[ENTITIES_COLLECTION]
+        relations_collection = db[RELATIONS_COLLECTION]
 
-#     // Filter relations to only include those between filtered entities
-#     const filteredRelations = graph.relations.filter(
-#       (r) => filteredEntityNames.has(r.from) && filteredEntityNames.has(r.to)
-#     );
+        filtered_entities = list(entities_collection.find({"name": {"$in": names}}))
+        filtered_entity_names = [entity["name"] for entity in filtered_entities]
+        filtered_relations = list(
+            relations_collection.find(
+                {
+                    "$or": [
+                        {"from_entity": {"$in": filtered_entity_names}},
+                        {"to_entity": {"$in": filtered_entity_names}},
+                    ]
+                }
+            )
+        )
 
-#     const filteredGraph: KnowledgeGraph = {
-#       entities: filteredEntities,
-#       relations: filteredRelations,
-#     };
+        filtered_graph = KnowledgeGraph()
+        filtered_graph.entities = filtered_entities
+        filtered_graph.relations = filtered_relations
 
-#     return filteredGraph;
-#   }
+        return filtered_graph
 
 
 @server.list_tools()
@@ -312,20 +295,20 @@ def list_tools_sync() -> list[types.Tool]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "from": {
+                                "from_entity": {
                                     "type": "string",
                                     "description": "The name of the entity where the relation starts",
                                 },
-                                "to": {
+                                "to_entity": {
                                     "type": "string",
                                     "description": "The name of the entity where the relation ends",
                                 },
-                                "relationType": {
+                                "relation_type": {
                                     "type": "string",
                                     "description": "The type of the relation",
                                 },
                             },
-                            "required": ["from", "to", "relationType"],
+                            "required": ["from", "to", "relation_type"],
                         },
                     },
                 },
@@ -343,7 +326,7 @@ def list_tools_sync() -> list[types.Tool]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "entityName": {
+                                "entity_name": {
                                     "type": "string",
                                     "description": "The name of the entity to add the observations to",
                                 },
@@ -353,7 +336,7 @@ def list_tools_sync() -> list[types.Tool]:
                                     "description": "An array of observation contents to add",
                                 },
                             },
-                            "required": ["entityName", "contents"],
+                            "required": ["entity_name", "contents"],
                         },
                     },
                 },
@@ -366,13 +349,13 @@ def list_tools_sync() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "entityNames": {
+                    "entity_names": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "An array of entity names to delete",
                     },
                 },
-                "required": ["entityNames"],
+                "required": ["entity_names"],
             },
         ),
         types.Tool(
@@ -386,7 +369,7 @@ def list_tools_sync() -> list[types.Tool]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "entityName": {
+                                "entity_name": {
                                     "type": "string",
                                     "description": "The name of the entity containing the observations",
                                 },
@@ -396,7 +379,7 @@ def list_tools_sync() -> list[types.Tool]:
                                     "description": "An array of observations to delete",
                                 },
                             },
-                            "required": ["entityName", "observations"],
+                            "required": ["entity_name", "observations"],
                         },
                     },
                 },
@@ -414,20 +397,20 @@ def list_tools_sync() -> list[types.Tool]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "from": {
+                                "from_entity": {
                                     "type": "string",
                                     "description": "The name of the entity where the relation starts",
                                 },
-                                "to": {
+                                "to_entity": {
                                     "type": "string",
                                     "description": "The name of the entity where the relation ends",
                                 },
-                                "relationType": {
+                                "relation_type": {
                                     "type": "string",
                                     "description": "The type of the relation",
                                 },
                             },
-                            "required": ["from", "to", "relationType"],
+                            "required": ["from", "to", "relation_type"],
                         },
                         "description": "An array of relations to delete",
                     },
