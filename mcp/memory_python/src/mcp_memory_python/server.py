@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.types import TextContent
+from pydantic import BaseModel
 from pymongo import MongoClient
 
 load_dotenv()
@@ -23,11 +24,18 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 logger = logging.getLogger("mcp_memory_python")
 
 
-class Entity:
-    def __init__(self, name: str, entity_type: str, observations: list):
-        self.name = name
-        self.entity_type = entity_type
-        self.observations = observations
+class Entity(BaseModel):
+    name: str
+    entity_type: str
+    observations: list[str]
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            name=data["name"],
+            entity_type=data["entity_type"],
+            observations=data["observations"],
+        )
 
     def to_dict(self):
         return {
@@ -37,16 +45,23 @@ class Entity:
         }
 
 
-class Relation:
-    def __init__(self, from_entity: str, to_entity: str, relation_type: str):
-        self.from_entity = from_entity
-        self.to_entity = to_entity
-        self.relation_type = relation_type
+class Relation(BaseModel):
+    from_entity: str
+    to_entity: str
+    relation_type: str
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            from_entity=data["from_entity"],
+            to_entity=data["to_entity"],
+            relation_type=data["relation_type"],
+        )
 
     def to_dict(self):
         return {
-            "from": self.from_entity,
-            "to": self.to_entity,
+            "from_entity": self.from_entity,
+            "to_entity": self.to_entity,
             "relation_type": self.relation_type,
         }
 
@@ -86,25 +101,54 @@ class KnowledgeGraphManager:
             print(f"Error loading graph: {e}")
             return KnowledgeGraph()
 
-    async def create_entities(self, entities: list[Entity]) -> list[Entity]:
+    async def create_entity(self, arguments) -> list[Entity]:
         # graph = await self.load_graph()
-
-        new_entities = []
+        logger.info("create_entity")
+        entity = Entity.from_dict(arguments)
+        # entity = Entity.from_dict(arguments)
+        logger.info("create_entity2")
         client = MongoClient(MONGO_URI)
+        logger.info("create_entity3")
         db = client[DATABASE_NAME]
+        logger.info("create_entity4")
         entities_collection = db[ENTITIES_COLLECTION]
-        logger.info("got collection")
+        logger.info("create_entity5")
+        if not entities_collection.find_one({"name": entity.name}):
+            logger.info("inside if")
+            entities_collection.insert_one(entity.to_dict())
+            logger.info("inside if2")
+            return entity
+        else:
+            return None
 
-        for entity in entities:
-            logger.info(f"Name: {entity.name}")
-            logger.info("inside for")
-            if not entities_collection.find_one({"name": entity.name}):
-                logger.info("inside if")
-                entities_collection.insert_one(entity.to_dict())
-                new_entities.append(entity)
-        return new_entities
+        # for entity in entities:
+        #     logger.info(f"Name: {entity.name}")
+        #     logger.info("inside for")
+        #     if not entities_collection.find_one({"name": entity.name}):
+        #         logger.info("inside if")
+        #         entities_collection.insert_one(entity.to_dict())
+        #         new_entities.append(entity)
+        # return new_entities
 
-    async def create_relations(self, relations: list[Relation]) -> list[Relation]:
+    # async def create_entities(self, entities: list[Entity]) -> list[Entity]:
+    #     # graph = await self.load_graph()
+
+    #     new_entities = []
+    #     client = MongoClient(MONGO_URI)
+    #     db = client[DATABASE_NAME]
+    #     entities_collection = db[ENTITIES_COLLECTION]
+    #     logger.info("got collection")
+
+    #     for entity in entities:
+    #         logger.info(f"Name: {entity.name}")
+    #         logger.info("inside for")
+    #         if not entities_collection.find_one({"name": entity.name}):
+    #             logger.info("inside if")
+    #             entities_collection.insert_one(entity.to_dict())
+    #             new_entities.append(entity)
+    #     return new_entities
+
+    async def create_relations(self, arguments) -> list[Relation]:
         # graph = await self.load_graph()
 
         new_relations = []
@@ -125,23 +169,28 @@ class KnowledgeGraphManager:
 
         return new_relations
 
-    async def add_observations(self, entity_name: str, observations: list[str]) -> dict:
+    async def add_observations(self, arguments) -> dict:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         entities_collection = db[ENTITIES_COLLECTION]
 
-        entity = entities_collection.find_one({"name": entity_name})
+        entity = entities_collection.find_one({"name": arguments["entity_name"]})
         if entity:
             new_observations = [
-                obs for obs in observations if obs not in entity["observations"]
+                obs
+                for obs in arguments["observations"]
+                if obs not in entity["observations"]
             ]
             entities_collection.update_one(
-                {"name": entity_name},
+                {"name": arguments["entity_name"]},
                 {"$set": {"observations": entity["observations"] + new_observations}},
             )
-            return {"entity_name": entity_name, "added_observations": new_observations}
+            return {
+                "entity_name": arguments["entity_name"],
+                "added_observations": new_observations,
+            }
         else:
-            raise Exception(f"Entity with name {entity_name} not found")
+            raise Exception(f"Entity with name {arguments["entity_name"]} not found")
 
     async def delete_entities(self, entity_names: list[str]) -> None:
         client = MongoClient(MONGO_URI)
@@ -261,26 +310,35 @@ async def handle_call_tool(
 ) -> list[types.TextContent]:
     """Handle tool operations."""
     logger.info(f"Handling tool {name} with arguments {arguments}")
-    # logger.info("Entities: " + arguments["entities"])
     if not arguments:
         arguments = {}
     try:
         if name == "create_entity_simple":
-            logger.info("Creating entity")
-            entity = Entity(
-                arguments["name"],
-                arguments["entityType"],
-                arguments["observations"],
-            )
-            logger.info(f"Entity: {entity}")
-            new_entities = await KnowledgeGraphManager().create_entities([entity])
-            logger.info(f"New entities: {new_entities}")
+            # new_entities = await KnowledgeGraphManager().create_entity(
+            #     arguments["name"], arguments["entity_type"], arguments["observations"]
+            # )
+            new_entities = await KnowledgeGraphManager().create_entity(arguments)
             return [
                 TextContent(
                     type="text",
                     text=(entity.to_dict() for entity in new_entities),
                 )
             ]
+            # logger.info("Creating entity")
+            # entity = Entity(
+            #     arguments["name"],
+            #     arguments["entityType"],
+            #     arguments["observations"],
+            # )
+            # logger.info(f"Entity: {entity}")
+            # new_entities = await KnowledgeGraphManager().create_entities([entity])
+            # logger.info(f"New entities: {new_entities}")
+            # return [
+            #     TextContent(
+            #         type="text",
+            #         text=(entity.to_dict() for entity in new_entities),
+            #     )
+            # ]
         if name == "create_entities":
             entities_data = json.loads(arguments["entities"])
             print(f"Type of entities_data: {type(entities_data)}")
@@ -382,25 +440,26 @@ def list_tools_sync() -> list[types.Tool]:
         types.Tool(
             name="create_entity_simple",
             description="Create a new entity in the knowledge graph",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "The name of the entity",
-                    },
-                    "entityType": {
-                        "type": "string",
-                        "description": "The type of the entity",
-                    },
-                    "observations": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "An array of observation contents associated with the entity",
-                    },
-                },
-                "required": ["name", "entityType", "observations"],
-            },
+            inputSchema=Entity.schema(),
+            # inputSchema={
+            #     "type": "object",
+            #     "properties": {
+            #         "name": {
+            #             "type": "string",
+            #             "description": "The name of the entity",
+            #         },
+            #         "entityType": {
+            #             "type": "string",
+            #             "description": "The type of the entity",
+            #         },
+            #         "observations": {
+            #             "type": "array",
+            #             "items": {"type": "string"},
+            #             "description": "An array of observation contents associated with the entity",
+            #         },
+            #     },
+            #     "required": ["name", "entityType", "observations"],
+            # },
         ),
         types.Tool(
             name="create_entities",

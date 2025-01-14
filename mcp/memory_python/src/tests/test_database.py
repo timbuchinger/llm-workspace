@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from mcp_memory_python import server
 from pymongo import MongoClient
 
+
 load_dotenv()
 
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -53,6 +54,14 @@ def test_list_tools():
     assert len(tools) == 9
 
 
+def test_create_entity(setup_database):
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
+
+    arguments = dict(name="entity1", entity_type="tool", observations=["tim"])
+    response = asyncio.run(manager.create_entity(arguments))
+    assert 1 == len(response)
+
+
 def test_create_entities(setup_database):
     manager = mcp_memory_python.server.KnowledgeGraphManager()
 
@@ -70,9 +79,15 @@ def test_create_entities(setup_database):
 
 def test_add_observations(setup_database):
     manager = mcp_memory_python.server.KnowledgeGraphManager()
+    arguments = {
+        "entity_name": "entity1",
+        "observations": ["observation1", "observation2"],
+    }
 
-    asyncio.run(manager.create_entities(entities[:2]))
-    result = asyncio.run(manager.add_observations(entities[0]["name"], observations))
+    entity = dict(name="entity1", entity_type="tool", observations=["tim"])
+    asyncio.run(manager.create_entity(entity))
+
+    result = asyncio.run(manager.add_observations(arguments))
     assert result["entity_name"] == entities[0]["name"]
     assert set(result["added_observations"]) == set(observations)
 
