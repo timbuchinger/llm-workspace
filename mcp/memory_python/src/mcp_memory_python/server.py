@@ -1,11 +1,14 @@
 import json
+import logging
 import os
+import sys
 
 import mcp.server.sse
 import mcp.types as types
 from dotenv import load_dotenv
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
+from mcp.types import TextContent
 from pymongo import MongoClient
 
 load_dotenv()
@@ -16,6 +19,8 @@ ENTITIES_COLLECTION = "entities"
 RELATIONS_COLLECTION = "relations"
 
 server = Server("mcp_memory_python")
+logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+logger = logging.getLogger("mcp_memory_python")
 
 
 class Entity:
@@ -72,7 +77,7 @@ class KnowledgeGraph:
 
 
 class KnowledgeGraphManager:
-    async def load_graph(self) -> KnowledgeGraph:
+    async def read_graph(self) -> KnowledgeGraph:
         try:
             graph = KnowledgeGraph()
             graph.load_from_mongodb()
@@ -81,11 +86,8 @@ class KnowledgeGraphManager:
             print(f"Error loading graph: {e}")
             return KnowledgeGraph()
 
-    async def readGraph(self) -> KnowledgeGraph:
-        return self.loadGraph()
-
     async def create_entities(self, entities: list[Entity]) -> list[Entity]:
-        graph = await self.load_graph()
+        # graph = await self.load_graph()
 
         new_entities = []
         client = MongoClient(MONGO_URI)
@@ -100,7 +102,7 @@ class KnowledgeGraphManager:
         return new_entities
 
     async def create_relations(self, relations: list[Relation]) -> list[Relation]:
-        graph = await self.load_graph()
+        # graph = await self.load_graph()
 
         new_relations = []
         client = MongoClient(MONGO_URI)
@@ -248,6 +250,112 @@ class KnowledgeGraphManager:
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
     return list_tools_sync()
+
+
+@server.call_tool()
+async def handle_call_tool(
+    name: str, arguments: dict | None
+) -> list[types.TextContent]:
+    """Handle tool operations."""
+    logger.info(f"Handling tool {name} with arguments {arguments}")
+    logger.info("Entities: " + arguments["entities"])
+    if not arguments:
+        arguments = {}
+    try:
+        if name == "create_entities":
+            entities_data = json.loads(arguments["entities"])
+            print(f"Type of entities_data: {type(entities_data)}")
+            print(entities_data)
+
+            logger.info("Creating entities")
+            for entity in arguments["entities"]:
+                logger.info("Entity: " + str(entity))
+                logger.info("Type of entity: " + str(type(entity)))
+            entities = [
+                Entity(
+                    entity["name"],
+                    entity["entityType"],
+                    entity["observations"],
+                )
+                for entity in arguments["entities"]
+            ]
+            logger.info(f"Entities: {entities}")
+            new_entities = await KnowledgeGraphManager().create_entities(entities)
+            logger.info(f"New entities: {new_entities}")
+            return [
+                TextContent(
+                    type="test",
+                    text=(entity.to_dict() for entity in new_entities),
+                )
+            ]
+
+        elif name == "create_relations":
+            relations = [
+                Relation(
+                    relation["from_entity"],
+                    relation["to_entity"],
+                    relation["relation_type"],
+                )
+                for relation in arguments["relations"]
+            ]
+            new_relations = await KnowledgeGraphManager().create_relations(relations)
+            return [
+                TextContent(
+                    type="test",
+                    text=(relation.to_dict() for relation in new_relations),
+                )
+            ]
+        elif name == "add_observations":
+            observations = await KnowledgeGraphManager().add_observations(
+                arguments["entity_name"], arguments["contents"]
+            )
+            return [TextContent(type="text", text=json.dumps(observations))]
+        elif name == "delete_entities":
+            await KnowledgeGraphManager().delete_entities(arguments["entity_names"])
+            return [TextContent(type="text", text="Entities deleted")]
+        elif name == "delete_observations":
+            await KnowledgeGraphManager().delete_observations(
+                arguments["entity_name"], arguments["observations"]
+            )
+            return [TextContent(type="text", text="Observations deleted")]
+        elif name == "delete_relations":
+            relations = [
+                Relation(
+                    relation["from_entity"],
+                    relation["to_entity"],
+                    relation["relation_type"],
+                )
+                for relation in arguments["relations"]
+            ]
+            await KnowledgeGraphManager().delete_relations(relations)
+            return [TextContent(type="text", text="Relations deleted")]
+        elif name == "read_graph":
+            graph = await KnowledgeGraphManager().read_graph()
+            graph_dict = {
+                "entities": [entity.to_dict() for entity in graph.entities],
+                "relations": [relation.to_dict() for relation in graph.relations],
+            }
+            return [TextContent(type="text", text=json.dumps(graph_dict))]
+        elif name == "search_nodes":
+            graph = await KnowledgeGraphManager().search_nodes(arguments["query"])
+            graph_dict = {
+                "entities": [entity.to_dict() for entity in graph.entities],
+                "relations": [relation.to_dict() for relation in graph.relations],
+            }
+            return [TextContent(type="text", text=json.dumps(graph_dict))]
+        elif name == "open_nodes":
+            graph = await KnowledgeGraphManager().open_nodes(arguments["names"])
+            graph_dict = {
+                "entities": [entity.to_dict() for entity in graph.entities],
+                "relations": [relation.to_dict() for relation in graph.relations],
+            }
+            return [TextContent(type="text", text=json.dumps(graph_dict))]
+        else:
+            raise Exception(f"Unknown tool name: {name}")
+
+    except Exception as e:
+        logger.error(f"Error handling tool {name}: {e}")
+        return Exception(f"Error handling tool {name}: {e}")
 
 
 def list_tools_sync() -> list[types.Tool]:
@@ -459,7 +567,9 @@ def list_tools_sync() -> list[types.Tool]:
 
 
 async def main():
-    async with mcp.server.sse.sse_server() as (read_stream, write_stream):
+    logger.info("Server is starting up")
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        # async with mcp.server.sse.sse_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
             write_stream,

@@ -1,10 +1,10 @@
 import asyncio
 import os
 
-import mcp_memory_python.app
+import mcp_memory_python.server
 import pytest
 from dotenv import load_dotenv
-from mcp_memory_python import app
+from mcp_memory_python import server
 from pymongo import MongoClient
 
 load_dotenv()
@@ -28,19 +28,15 @@ relations = [
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_before_each_test():
-    # Code to run before each test
-    print("Setup before each test")
     client = MongoClient(MONGO_URI)
     db = client[DATABASE_NAME]
-
-    # Delete and recreate the collections
     db.entities.drop()
     db.relations.drop()
     db.create_collection(ENTITIES_COLLECTION)
     db.create_collection(RELATIONS_COLLECTION)
+
     yield
-    # Code to run after each test
-    print("Teardown after each test")
+
     client.close()
 
 
@@ -53,12 +49,12 @@ def setup_database():
 
 
 def test_list_tools():
-    tools = asyncio.run(app.list_tools())
+    tools = asyncio.run(server.list_tools())
     assert len(tools) == 9
 
 
 def test_create_entities(setup_database):
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
 
     response = asyncio.run(manager.create_entities(entities))
     assert 2 == len(response)
@@ -66,14 +62,14 @@ def test_create_entities(setup_database):
     assert setup_database[ENTITIES_COLLECTION].count_documents({}) == 2
 
 
-def test_load_from_mongodb(setup_database):
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
-    graph = asyncio.run(manager.load_graph())
-    assert graph is not None
+# def test_load_from_mongodb(setup_database):
+#     manager = mcp_memory_python.server.KnowledgeGraphManager()
+#     graph = asyncio.run(manager.load_graph())
+#     assert graph is not None
 
 
 def test_add_observations(setup_database):
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
 
     asyncio.run(manager.create_entities(entities[:2]))
     result = asyncio.run(manager.add_observations(entities[0]["name"], observations))
@@ -83,7 +79,7 @@ def test_add_observations(setup_database):
 
 def test_delete_entities(setup_database):
     entity_names = ["entity1", "entity2"]
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
 
     asyncio.run(manager.delete_entities(entity_names))
     remaining_entities = list(setup_database[ENTITIES_COLLECTION].find())
@@ -95,7 +91,7 @@ def test_delete_entities(setup_database):
 def test_delete_observations(setup_database):
     entity_name = "entity1"
     observations = ["observation1"]
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
 
     asyncio.run(manager.create_entities(entities[:2]))
     asyncio.run(manager.add_observations(entities[0]["name"], observations))
@@ -106,7 +102,7 @@ def test_delete_observations(setup_database):
 
 def test_delete_relations(setup_database):
 
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
 
     asyncio.run(manager.create_entities(entities[:2]))
     asyncio.run(manager.create_relations(relations))
@@ -125,7 +121,7 @@ def test_delete_relations(setup_database):
 
 def test_search_nodes(setup_database):
     query = "entity"
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
 
     asyncio.run(manager.create_entities(entities[:2]))
     result = asyncio.run(manager.search_nodes(query))
@@ -135,9 +131,15 @@ def test_search_nodes(setup_database):
 
 def test_open_nodes(setup_database):
     names = ["entity1", "entity2"]
-    manager = mcp_memory_python.app.KnowledgeGraphManager()
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
 
     asyncio.run(manager.create_entities(entities[:2]))
     result = asyncio.run(manager.open_nodes(names))
     assert result is not None
     assert all(entity["name"] in names for entity in result.entities)
+
+
+def test_read_graph():
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
+    graph = asyncio.run(manager.read_graph())
+    assert graph is not None
