@@ -93,12 +93,15 @@ class KnowledgeGraphManager:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         entities_collection = db[ENTITIES_COLLECTION]
+        logger.info("got collection")
 
         for entity in entities:
-            if not entities_collection.find_one({"name": entity["name"]}):
-                entities_collection.insert_one(entity)
+            logger.info(f"Name: {entity.name}")
+            logger.info("inside for")
+            if not entities_collection.find_one({"name": entity.name}):
+                logger.info("inside if")
+                entities_collection.insert_one(entity.to_dict())
                 new_entities.append(entity)
-
         return new_entities
 
     async def create_relations(self, relations: list[Relation]) -> list[Relation]:
@@ -258,10 +261,26 @@ async def handle_call_tool(
 ) -> list[types.TextContent]:
     """Handle tool operations."""
     logger.info(f"Handling tool {name} with arguments {arguments}")
-    logger.info("Entities: " + arguments["entities"])
+    # logger.info("Entities: " + arguments["entities"])
     if not arguments:
         arguments = {}
     try:
+        if name == "create_entity_simple":
+            logger.info("Creating entity")
+            entity = Entity(
+                arguments["name"],
+                arguments["entityType"],
+                arguments["observations"],
+            )
+            logger.info(f"Entity: {entity}")
+            new_entities = await KnowledgeGraphManager().create_entities([entity])
+            logger.info(f"New entities: {new_entities}")
+            return [
+                TextContent(
+                    type="text",
+                    text=(entity.to_dict() for entity in new_entities),
+                )
+            ]
         if name == "create_entities":
             entities_data = json.loads(arguments["entities"])
             print(f"Type of entities_data: {type(entities_data)}")
@@ -284,7 +303,7 @@ async def handle_call_tool(
             logger.info(f"New entities: {new_entities}")
             return [
                 TextContent(
-                    type="test",
+                    type="text",
                     text=(entity.to_dict() for entity in new_entities),
                 )
             ]
@@ -301,7 +320,7 @@ async def handle_call_tool(
             new_relations = await KnowledgeGraphManager().create_relations(relations)
             return [
                 TextContent(
-                    type="test",
+                    type="text",
                     text=(relation.to_dict() for relation in new_relations),
                 )
             ]
@@ -360,6 +379,29 @@ async def handle_call_tool(
 
 def list_tools_sync() -> list[types.Tool]:
     return [
+        types.Tool(
+            name="create_entity_simple",
+            description="Create a new entity in the knowledge graph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the entity",
+                    },
+                    "entityType": {
+                        "type": "string",
+                        "description": "The type of the entity",
+                    },
+                    "observations": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "An array of observation contents associated with the entity",
+                    },
+                },
+                "required": ["name", "entityType", "observations"],
+            },
+        ),
         types.Tool(
             name="create_entities",
             description="Create multiple new entities in the knowledge graph",
