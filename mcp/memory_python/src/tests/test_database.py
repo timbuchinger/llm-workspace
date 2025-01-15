@@ -6,7 +6,7 @@ import pytest
 from dotenv import load_dotenv
 from mcp_memory_python import server
 from pymongo import MongoClient
-
+from pytest_lazyfixture import lazy_fixture
 
 load_dotenv()
 
@@ -16,11 +16,16 @@ ENTITIES_COLLECTION = "entities"
 RELATIONS_COLLECTION = "relations"
 
 entities = [
-    {"name": "entity1", "type": "tool", "observations": []},
-    {"name": "entity2", "type": "tool", "observations": []},
-    {"name": "entity1", "type": "tool", "observations": []},
+    {
+        "name": "entity1",
+        "entity_type": "tool",
+        "observations": ["observation1", "observation2"],
+    },
+    {"name": "entity2", "entity_type": "person", "observations": []},
+    {"name": "entity1", "entity_type": "job", "observations": []},
+    {"name": "entity3", "entity_type": "vehicle", "observations": []},
 ]
-observations = ["observation1", "observation2"]
+# observations = ["observation1", "observation2"]
 relations = [
     {"from_entity": "entity1", "to_entity": "entity2", "relation_type": "type1"},
     {"from_entity": "entity2", "to_entity": "entity3", "relation_type": "type2"},
@@ -49,79 +54,113 @@ def setup_database():
     client.close()
 
 
+@pytest.fixture(scope="function")
+def setup_manager():
+    manager = mcp_memory_python.server.KnowledgeGraphManager()
+    yield manager
+
+
+@pytest.mark.usefixtures("setup_database")
+@pytest.fixture(scope="function")
+def setup_entities(setup_manager):
+    for entity in entities:
+        arguments = dict(
+            name=entity["name"],
+            entity_type=entity["entity_type"],
+            observations=entity["observations"],
+        )
+        asyncio.run(setup_manager.create_entity(arguments))
+    # yield setup_database
+
+
+@pytest.mark.usefixtures("setup_database", "setup_entities")
+@pytest.fixture(scope="function")
+def setup_relations(setup_manager):
+    for relation in relations:
+        arguments = dict(
+            from_entity=relation["from_entity"],
+            to_entity=relation["to_entity"],
+            relation_type=relation["relation_type"],
+        )
+        asyncio.run(setup_manager.create_relation(arguments))
+
+
 def test_list_tools():
     tools = asyncio.run(server.list_tools())
     assert len(tools) == 9
 
 
-def test_create_entity(setup_database):
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
+def test_create_entity(setup_database, setup_manager):
+    for entity in entities:
+        arguments = dict(
+            name=entity["name"],
+            entity_type=entity["entity_type"],
+            observations=entity["observations"],
+        )
+        asyncio.run(setup_manager.create_entity(arguments))
 
-    arguments = dict(name="entity1", entity_type="tool", observations=["tim"])
-    response = asyncio.run(manager.create_entity(arguments))
-    assert 1 == len(response)
-
-
-def test_create_entities(setup_database):
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
-
-    response = asyncio.run(manager.create_entities(entities))
-    assert 2 == len(response)
-
-    assert setup_database[ENTITIES_COLLECTION].count_documents({}) == 2
+    assert 3 == setup_database[ENTITIES_COLLECTION].count_documents({})
 
 
-# def test_load_from_mongodb(setup_database):
-#     manager = mcp_memory_python.server.KnowledgeGraphManager()
-#     graph = asyncio.run(manager.load_graph())
-#     assert graph is not None
-
-
-def test_add_observations(setup_database):
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
+@pytest.mark.usefixtures("setup_database", "setup_entities")
+def test_add_observations(setup_manager):
     arguments = {
         "entity_name": "entity1",
-        "observations": ["observation1", "observation2"],
+        "observations": ["observation3", "observation4"],
     }
 
     entity = dict(name="entity1", entity_type="tool", observations=["tim"])
-    asyncio.run(manager.create_entity(entity))
+    asyncio.run(setup_manager.create_entity(entity))
 
-    result = asyncio.run(manager.add_observations(arguments))
+    result = asyncio.run(setup_manager.add_observations(arguments))
     assert result["entity_name"] == entities[0]["name"]
-    assert set(result["added_observations"]) == set(observations)
+    assert set(result["added_observations"]) == set(arguments["observations"])
+    # TODO: Assert that values in database match the actual values
 
 
-def test_delete_entities(setup_database):
-    entity_names = ["entity1", "entity2"]
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
+@pytest.mark.usefixtures("setup_entities")
+def test_create_relation(setup_database, setup_manager):
+    arguments = dict(from_entity="entity7", to_entity="entity8", relation_type="type9")
+    asyncio.run(setup_manager.create_relation(arguments))
+    relations = list(
+        setup_database[RELATIONS_COLLECTION].find({"from_entity": "entity7"})
+    )
 
-    asyncio.run(manager.delete_entities(entity_names))
+    assert 1 == len(relations)
+
+
+@pytest.mark.usefixtures("setup_entities")
+def test_delete_entities(setup_database, setup_manager):
+    arguments = dict(entity_names=[entities[0]["name"]])
+    asyncio.run(setup_manager.delete_entities(arguments))
     remaining_entities = list(setup_database[ENTITIES_COLLECTION].find())
-    for entity in remaining_entities:
-        print(entity)
-    assert all(entity["name"] not in entity_names for entity in remaining_entities)
+
+    assert entities[0]["name"] not in remaining_entities
+    assert 2 == len(remaining_entities)
+    # TODO: Assert that values in database match the actual values
 
 
-def test_delete_observations(setup_database):
-    entity_name = "entity1"
-    observations = ["observation1"]
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
+@pytest.mark.usefixtures("setup_entities")
+def test_delete_observations(setup_database, setup_manager):
+    entity_name = entities[0]["name"]
+    observation = entities[0]["observations"][0]
 
-    asyncio.run(manager.create_entities(entities[:2]))
-    asyncio.run(manager.add_observations(entities[0]["name"], observations))
-    asyncio.run(manager.delete_observations(entity_name, observations))
+    arguments = dict(entity_name=entity_name, observations=[observation])
+    asyncio.run(setup_manager.delete_observations(arguments))
     entity = setup_database[ENTITIES_COLLECTION].find_one({"name": entity_name})
-    assert all(obs not in entity["observations"] for obs in observations)
+    assert observation not in entity["observations"]
 
 
-def test_delete_relations(setup_database):
+@pytest.mark.usefixtures("setup_relations")
+def test_delete_relations(setup_database, setup_manager):
+    setup_manager = mcp_memory_python.server.KnowledgeGraphManager()
 
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
-
-    asyncio.run(manager.create_entities(entities[:2]))
-    asyncio.run(manager.create_relations(relations))
-    asyncio.run(manager.delete_relations(relations))
+    arguments = dict(
+        from_entity=relations[0]["from_entity"],
+        to_entity=relations[0]["to_entity"],
+        relation_type=relations[0]["relation_type"],
+    )
+    asyncio.run(setup_manager.delete_relation(arguments))
     remaining_relations = setup_database[RELATIONS_COLLECTION].find()
     assert all(
         not (
@@ -132,29 +171,33 @@ def test_delete_relations(setup_database):
         for r in relations
         for rel in remaining_relations
     )
+    # TODO: Assert that values in database match the actual values
 
 
-def test_search_nodes(setup_database):
-    query = "entity"
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
+@pytest.mark.usefixtures("setup_database")
+def test_search_nodes(setup_manager):
+    query_string = "entity"
+    arguments = dict(query=query_string)
 
-    asyncio.run(manager.create_entities(entities[:2]))
-    result = asyncio.run(manager.search_nodes(query))
+    result = asyncio.run(setup_manager.search_nodes(arguments))
     assert result is not None
-    assert all(query in entity["name"] for entity in result.entities)
+    assert all(query_string in entity["name"] for entity in result.entities)
+    # TODO: Assert that values in database match the actual values
 
 
-def test_open_nodes(setup_database):
-    names = ["entity1", "entity2"]
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
+# TODO: Implement this method
+# @pytest.mark.usefixtures("setup_database")
+# def test_open_nodes(setup_manager):
+#     names = ["entity1", "entity2"]
 
-    asyncio.run(manager.create_entities(entities[:2]))
-    result = asyncio.run(manager.open_nodes(names))
-    assert result is not None
-    assert all(entity["name"] in names for entity in result.entities)
+#     result = asyncio.run(setup_manager.open_nodes(names))
+#     assert result is not None
+#     assert all(entity["name"] in names for entity in result.entities)
+#     # TODO: Assert that values in database match the actual values
 
 
-def test_read_graph():
-    manager = mcp_memory_python.server.KnowledgeGraphManager()
-    graph = asyncio.run(manager.read_graph())
+@pytest.mark.usefixtures("setup_database")
+def test_read_graph(setup_manager):
+    graph = asyncio.run(setup_manager.read_graph())
     assert graph is not None
+    # TODO: Assert that values in database match the actual values

@@ -35,7 +35,7 @@ npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 build/index.js 
   `entities`: [
     {
       `name`: `Tim`,
-      `entityType`: `Person`,
+      `entity_type`: `Person`,
       `observations`: []
     }
   ]
@@ -47,7 +47,7 @@ npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 build/index.js 
   "entities": [
     {
       "name": "Tim",
-      "entityType": "Person",
+      "entity_type": "Person",
       "observations": []
     }
   ]

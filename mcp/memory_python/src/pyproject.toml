@@ -8,6 +8,7 @@ dependencies = [
  "mcp>=1.2.0",
  "pymongo>=4.10.1",
  "pytest>=8.3.4",
+ "pytest-lazy-fixture>=0.6.3",
  "python-dotenv>=1.0.1",
 ]
 [[project.authors]]

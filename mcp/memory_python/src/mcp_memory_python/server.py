@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+from typing import Annotated
 
 import mcp.server.sse
 import mcp.types as types
@@ -9,7 +10,7 @@ from dotenv import load_dotenv
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.types import TextContent
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pymongo import MongoClient
 
 load_dotenv()
@@ -25,9 +26,34 @@ logger = logging.getLogger("mcp_memory_python")
 
 
 class Entity(BaseModel):
-    name: str
-    entity_type: str
-    observations: list[str]
+    """
+    A class used to represent an Entity.
+
+    Methods
+        from_dict(cls, data: dict) -> 'Entity'
+            Creates an instance of Entity from a dictionary.
+        to_dict(self) -> dict
+            Converts the Entity instance to a dictionary.
+    """
+
+    name: Annotated[
+        str,
+        Field(
+            description="The name of the entity.",
+        ),
+    ]
+    entity_type: Annotated[
+        str,
+        Field(
+            description="The type of the entity.",
+        ),
+    ]
+    observations: Annotated[
+        list[str],
+        Field(
+            description="A list of observations related to the entity.",
+        ),
+    ]
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -40,15 +66,40 @@ class Entity(BaseModel):
     def to_dict(self):
         return {
             "name": self.name,
-            "entityType": self.entity_type,
+            "entity_type": self.entity_type,
             "observations": self.observations,
         }
 
 
 class Relation(BaseModel):
-    from_entity: str
-    to_entity: str
-    relation_type: str
+    """
+    Represents a relationship between two entities.
+
+    Methods:
+        from_dict(data: dict) -> Relation:
+            Creates an instance of Relation from a dictionary.
+        to_dict() -> dict:
+            Converts the Relation instance to a dictionary.
+    """
+
+    from_entity: Annotated[
+        str,
+        Field(
+            description="The entity from which the relation originates.",
+        ),
+    ]
+    to_entity: Annotated[
+        str,
+        Field(
+            description="The entity to which the relation points.",
+        ),
+    ]
+    relation_type: Annotated[
+        str,
+        Field(
+            description="The type of the relation.",
+        ),
+    ]
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -66,110 +117,79 @@ class Relation(BaseModel):
         }
 
 
-class KnowledgeGraph:
-    def __init__(self):
-        self.entities = []
-        self.relations = []
+class KnowledgeGraph(BaseModel):
+    entities: list[Entity]
+    relations: list[Relation]
 
-    def load_from_mongodb(self):
-        client = MongoClient(MONGO_URI)
-        db = client[DATABASE_NAME]
-        entities_collection = db[ENTITIES_COLLECTION]
-        relations_collection = db[RELATIONS_COLLECTION]
+    # def load_from_mongodb(self):
+    #     client = MongoClient(MONGO_URI)
+    #     db = client[DATABASE_NAME]
+    #     entities_collection = db[ENTITIES_COLLECTION]
+    #     relations_collection = db[RELATIONS_COLLECTION]
+    #     self.entities = [
+    #         Entity.from_dict(
+    #             dict(
+    #                 name=entity["name"],
+    #                 entity_type=entity["entity_type"],
+    #                 observations=entity["observations"],
+    #             )
+    #         )
+    #         for entity in entities_collection.find()
+    #     ]
+    #     self.relations = [
+    #         Relation.from_dict(
+    #             dict(
+    #                 from_entity=relation["from_entity"],
+    #                 to_entity=relation["to_entity"],
+    #                 relation_type=relation["relation_type"],
+    #             )
+    #         )
+    #         for relation in relations_collection.find()
+    #     ]
 
-        self.entities = [
-            Entity(entity["name"], entity["entityType"], entity["observations"])
-            for entity in entities_collection.find()
-        ]
-        self.relations = [
-            Relation(
-                relation["from_entity"],
-                relation["to_entity"],
-                relation["relation_type"],
-            )
-            for relation in relations_collection.find()
-        ]
+    def to_dict(self):
+        return {"entities": self.entities, "relations": self.relations}
 
 
 class KnowledgeGraphManager:
     async def read_graph(self) -> KnowledgeGraph:
-        try:
-            graph = KnowledgeGraph()
-            graph.load_from_mongodb()
-            return graph
-        except Exception as e:
-            print(f"Error loading graph: {e}")
-            return KnowledgeGraph()
-
-    async def create_entity(self, arguments) -> list[Entity]:
-        # graph = await self.load_graph()
-        logger.info("create_entity")
-        entity = Entity.from_dict(arguments)
-        # entity = Entity.from_dict(arguments)
-        logger.info("create_entity2")
         client = MongoClient(MONGO_URI)
-        logger.info("create_entity3")
         db = client[DATABASE_NAME]
-        logger.info("create_entity4")
+        entities = db[ENTITIES_COLLECTION].find()
+        relations = db[RELATIONS_COLLECTION].find()
+        graph = KnowledgeGraph(entities=entities, relations=relations)
+        return graph
+
+    async def create_entity(self, arguments: dict) -> list[Entity]:
+        entity = Entity.from_dict(arguments)
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
         entities_collection = db[ENTITIES_COLLECTION]
-        logger.info("create_entity5")
         if not entities_collection.find_one({"name": entity.name}):
-            logger.info("inside if")
             entities_collection.insert_one(entity.to_dict())
-            logger.info("inside if2")
             return entity
         else:
             return None
 
-        # for entity in entities:
-        #     logger.info(f"Name: {entity.name}")
-        #     logger.info("inside for")
-        #     if not entities_collection.find_one({"name": entity.name}):
-        #         logger.info("inside if")
-        #         entities_collection.insert_one(entity.to_dict())
-        #         new_entities.append(entity)
-        # return new_entities
-
-    # async def create_entities(self, entities: list[Entity]) -> list[Entity]:
-    #     # graph = await self.load_graph()
-
-    #     new_entities = []
-    #     client = MongoClient(MONGO_URI)
-    #     db = client[DATABASE_NAME]
-    #     entities_collection = db[ENTITIES_COLLECTION]
-    #     logger.info("got collection")
-
-    #     for entity in entities:
-    #         logger.info(f"Name: {entity.name}")
-    #         logger.info("inside for")
-    #         if not entities_collection.find_one({"name": entity.name}):
-    #             logger.info("inside if")
-    #             entities_collection.insert_one(entity.to_dict())
-    #             new_entities.append(entity)
-    #     return new_entities
-
-    async def create_relations(self, arguments) -> list[Relation]:
-        # graph = await self.load_graph()
-
-        new_relations = []
+    async def create_relation(self, arguments: dict) -> list[Relation]:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         relations_collection = db[RELATIONS_COLLECTION]
 
-        for relation in relations:
-            if not relations_collection.find_one(
-                {
-                    "from_entity": relation["from_entity"],
-                    "to_entity": relation["to_entity"],
-                    "relation_type": relation["relation_type"],
-                }
-            ):
-                relations_collection.insert_one(relation)
-                new_relations.append(relation)
+        if not relations_collection.find_one(
+            {
+                "from_entity": arguments["from_entity"],
+                "to_entity": arguments["to_entity"],
+                "relation_type": arguments["relation_type"],
+            }
+        ):
+            relation = Relation.from_dict(arguments)
+            relations_collection.insert_one(relation.to_dict())
+            return relation
 
-        return new_relations
+        return None
 
-    async def add_observations(self, arguments) -> dict:
+    async def add_observations(self, arguments: dict) -> dict:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         entities_collection = db[ENTITIES_COLLECTION]
@@ -192,11 +212,13 @@ class KnowledgeGraphManager:
         else:
             raise Exception(f"Entity with name {arguments["entity_name"]} not found")
 
-    async def delete_entities(self, entity_names: list[str]) -> None:
+    async def delete_entities(self, arguments: dict) -> None:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         entities_collection = db[ENTITIES_COLLECTION]
         relations_collection = db[RELATIONS_COLLECTION]
+
+        entity_names = arguments["entity_names"]
 
         entities_collection.delete_many({"name": {"$in": entity_names}})
         relations_collection.delete_many(
@@ -208,16 +230,16 @@ class KnowledgeGraphManager:
             }
         )
 
-    async def delete_observations(
-        self, entity_name: str, observations: list[str]
-    ) -> None:
+    async def delete_observations(self, arguments: dict) -> None:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         entities_collection = db[ENTITIES_COLLECTION]
 
+        entity_name = arguments["entity_name"]
+        observations = arguments["observations"]
+
         entity = entities_collection.find_one({"name": entity_name})
         if entity:
-            # Remove the specified observations from the entity's observations
             updated_observations = [
                 observation
                 for observation in entity["observations"]
@@ -228,26 +250,29 @@ class KnowledgeGraphManager:
                 {"$set": {"observations": updated_observations}},
             )
 
-    async def delete_relations(self, relations: list[Relation]) -> None:
+    async def delete_relation(self, arguments: dict) -> None:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         relations_collection = db[RELATIONS_COLLECTION]
 
-        for relation in relations:
-            relations_collection.delete_one(relation)
+        relation = Relation.from_dict(arguments)
 
-    async def search_nodes(self, query: str) -> KnowledgeGraph:
+        relations_collection.delete_one(relation.to_dict())
+
+    async def search_nodes(self, arguments: dict) -> KnowledgeGraph:
         client = MongoClient(MONGO_URI)
         db = client[DATABASE_NAME]
         entities_collection = db[ENTITIES_COLLECTION]
         relations_collection = db[RELATIONS_COLLECTION]
+
+        query = arguments["query"]
 
         filtered_entities = list(
             entities_collection.find(
                 {
                     "$or": [
                         {"name": {"$regex": f".*{query}.*", "$options": "i"}},
-                        {"entityType": {"$regex": f".*{query}.*", "$options": "i"}},
+                        {"entity_type": {"$regex": f".*{query}.*", "$options": "i"}},
                         {"observations": {"$regex": f".*{query}.*", "$options": "i"}},
                     ]
                 }
@@ -267,36 +292,39 @@ class KnowledgeGraphManager:
             )
         )
 
-        filtered_graph = KnowledgeGraph()
-        filtered_graph.entities = filtered_entities
-        filtered_graph.relations = filtered_relations
-
-        return filtered_graph
-
-    async def open_nodes(self, names: list[str]) -> KnowledgeGraph:
-        client = MongoClient(MONGO_URI)
-        db = client[DATABASE_NAME]
-        entities_collection = db[ENTITIES_COLLECTION]
-        relations_collection = db[RELATIONS_COLLECTION]
-
-        filtered_entities = list(entities_collection.find({"name": {"$in": names}}))
-        filtered_entity_names = [entity["name"] for entity in filtered_entities]
-        filtered_relations = list(
-            relations_collection.find(
-                {
-                    "$or": [
-                        {"from_entity": {"$in": filtered_entity_names}},
-                        {"to_entity": {"$in": filtered_entity_names}},
-                    ]
-                }
-            )
+        filtered_graph = KnowledgeGraph(
+            entities=filtered_entities, relations=filtered_relations
         )
 
-        filtered_graph = KnowledgeGraph()
-        filtered_graph.entities = filtered_entities
-        filtered_graph.relations = filtered_relations
-
         return filtered_graph
+
+    # TODO: Implement this method
+    # async def open_nodes(self, entity_names: list[str]) -> KnowledgeGraph:
+    #     client = MongoClient(MONGO_URI)
+    #     db = client[DATABASE_NAME]
+    #     entities_collection = db[ENTITIES_COLLECTION]
+    #     relations_collection = db[RELATIONS_COLLECTION]
+
+    #     filtered_entities = list(
+    #         entities_collection.find({"name": {"$in": entity_names}})
+    #     )
+    #     filtered_entity_names = [entity["name"] for entity in filtered_entities]
+    #     filtered_relations = list(
+    #         relations_collection.find(
+    #             {
+    #                 "$or": [
+    #                     {"from_entity": {"$in": filtered_entity_names}},
+    #                     {"to_entity": {"$in": filtered_entity_names}},
+    #                 ]
+    #             }
+    #         )
+    #     )
+
+    #     filtered_graph = KnowledgeGraph()
+    #     filtered_graph.entities = filtered_entities
+    #     filtered_graph.relations = filtered_relations
+
+    #     return filtered_graph
 
 
 @server.list_tools()
@@ -313,99 +341,45 @@ async def handle_call_tool(
     if not arguments:
         arguments = {}
     try:
-        if name == "create_entity_simple":
-            # new_entities = await KnowledgeGraphManager().create_entity(
-            #     arguments["name"], arguments["entity_type"], arguments["observations"]
-            # )
-            new_entities = await KnowledgeGraphManager().create_entity(arguments)
+        if name == "create_entity":
+            new_entity = await KnowledgeGraphManager().create_entity(arguments)
             return [
                 TextContent(
                     type="text",
-                    text=(entity.to_dict() for entity in new_entities),
-                )
-            ]
-            # logger.info("Creating entity")
-            # entity = Entity(
-            #     arguments["name"],
-            #     arguments["entityType"],
-            #     arguments["observations"],
-            # )
-            # logger.info(f"Entity: {entity}")
-            # new_entities = await KnowledgeGraphManager().create_entities([entity])
-            # logger.info(f"New entities: {new_entities}")
-            # return [
-            #     TextContent(
-            #         type="text",
-            #         text=(entity.to_dict() for entity in new_entities),
-            #     )
-            # ]
-        if name == "create_entities":
-            entities_data = json.loads(arguments["entities"])
-            print(f"Type of entities_data: {type(entities_data)}")
-            print(entities_data)
-
-            logger.info("Creating entities")
-            for entity in arguments["entities"]:
-                logger.info("Entity: " + str(entity))
-                logger.info("Type of entity: " + str(type(entity)))
-            entities = [
-                Entity(
-                    entity["name"],
-                    entity["entityType"],
-                    entity["observations"],
-                )
-                for entity in arguments["entities"]
-            ]
-            logger.info(f"Entities: {entities}")
-            new_entities = await KnowledgeGraphManager().create_entities(entities)
-            logger.info(f"New entities: {new_entities}")
-            return [
-                TextContent(
-                    type="text",
-                    text=(entity.to_dict() for entity in new_entities),
+                    text=json.dumps(new_entity.to_dict()) if new_entity else "None",
                 )
             ]
 
-        elif name == "create_relations":
-            relations = [
-                Relation(
-                    relation["from_entity"],
-                    relation["to_entity"],
-                    relation["relation_type"],
-                )
-                for relation in arguments["relations"]
-            ]
-            new_relations = await KnowledgeGraphManager().create_relations(relations)
+        elif name == "create_relation":
+            new_relation = await KnowledgeGraphManager().create_relation(arguments)
             return [
                 TextContent(
                     type="text",
-                    text=(relation.to_dict() for relation in new_relations),
+                    text=json.dumps(new_relation.to_dict()) if new_relation else "None",
                 )
             ]
+
         elif name == "add_observations":
-            observations = await KnowledgeGraphManager().add_observations(
-                arguments["entity_name"], arguments["contents"]
-            )
-            return [TextContent(type="text", text=json.dumps(observations))]
-        elif name == "delete_entities":
-            await KnowledgeGraphManager().delete_entities(arguments["entity_names"])
-            return [TextContent(type="text", text="Entities deleted")]
-        elif name == "delete_observations":
-            await KnowledgeGraphManager().delete_observations(
-                arguments["entity_name"], arguments["observations"]
-            )
-            return [TextContent(type="text", text="Observations deleted")]
-        elif name == "delete_relations":
-            relations = [
-                Relation(
-                    relation["from_entity"],
-                    relation["to_entity"],
-                    relation["relation_type"],
+            observations = await KnowledgeGraphManager().add_observations(arguments)
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(observations if observations else "None"),
                 )
-                for relation in arguments["relations"]
             ]
-            await KnowledgeGraphManager().delete_relations(relations)
+
+        elif name == "delete_entities":
+            await KnowledgeGraphManager().delete_entities(arguments)
+            return [TextContent(type="text", text="Entities deleted")]
+
+        elif name == "delete_observations":
+            await KnowledgeGraphManager().delete_observations(arguments)
+            return [TextContent(type="text", text="Observations deleted")]
+
+        elif name == "delete_relation":
+            await KnowledgeGraphManager().delete_relation(arguments)
             return [TextContent(type="text", text="Relations deleted")]
+
         elif name == "read_graph":
             graph = await KnowledgeGraphManager().read_graph()
             graph_dict = {
@@ -413,143 +387,94 @@ async def handle_call_tool(
                 "relations": [relation.to_dict() for relation in graph.relations],
             }
             return [TextContent(type="text", text=json.dumps(graph_dict))]
+
         elif name == "search_nodes":
-            graph = await KnowledgeGraphManager().search_nodes(arguments["query"])
+            graph = await KnowledgeGraphManager().search_nodes(arguments)
             graph_dict = {
                 "entities": [entity.to_dict() for entity in graph.entities],
                 "relations": [relation.to_dict() for relation in graph.relations],
             }
             return [TextContent(type="text", text=json.dumps(graph_dict))]
-        elif name == "open_nodes":
-            graph = await KnowledgeGraphManager().open_nodes(arguments["names"])
-            graph_dict = {
-                "entities": [entity.to_dict() for entity in graph.entities],
-                "relations": [relation.to_dict() for relation in graph.relations],
-            }
-            return [TextContent(type="text", text=json.dumps(graph_dict))]
+
+        # TODO: Implement this method
+        # elif name == "open_nodes":
+        #     graph = await KnowledgeGraphManager().open_nodes(arguments["names"])
+        #     graph_dict = {
+        #         "entities": [entity.to_dict() for entity in graph.entities],
+        #         "relations": [relation.to_dict() for relation in graph.relations],
+        #     }
+        #     return [TextContent(type="text", text=json.dumps(graph_dict))]
+
         else:
             raise Exception(f"Unknown tool name: {name}")
 
     except Exception as e:
         logger.error(f"Error handling tool {name}: {e}")
+        logger.exception(e, stack_info=True)
         return Exception(f"Error handling tool {name}: {e}")
 
 
 def list_tools_sync() -> list[types.Tool]:
     return [
         types.Tool(
-            name="create_entity_simple",
+            name="create_entity",
             description="Create a new entity in the knowledge graph",
             inputSchema=Entity.schema(),
-            # inputSchema={
-            #     "type": "object",
-            #     "properties": {
-            #         "name": {
-            #             "type": "string",
-            #             "description": "The name of the entity",
-            #         },
-            #         "entityType": {
-            #             "type": "string",
-            #             "description": "The type of the entity",
-            #         },
-            #         "observations": {
-            #             "type": "array",
-            #             "items": {"type": "string"},
-            #             "description": "An array of observation contents associated with the entity",
-            #         },
-            #     },
-            #     "required": ["name", "entityType", "observations"],
-            # },
         ),
+        # types.Tool(
+        #     name="create_entities",
+        #     description="Create multiple new entities in the knowledge graph",
+        #     inputSchema={
+        #         "type": "object",
+        #         "properties": {
+        #             "entities": {
+        #                 "type": "array",
+        #                 "items": {
+        #                     "type": "object",
+        #                     "properties": {
+        #                         "name": {
+        #                             "type": "string",
+        #                             "description": "The name of the entity",
+        #                         },
+        #                         "entity_type": {
+        #                             "type": "string",
+        #                             "description": "The type of the entity",
+        #                         },
+        #                         "observations": {
+        #                             "type": "array",
+        #                             "items": {"type": "string"},
+        #                             "description": "An array of observation contents associated with the entity",
+        #                         },
+        #                     },
+        #                     "required": ["name", "entity_type", "observations"],
+        #                 },
+        #             },
+        #         },
+        #         "required": ["entities"],
+        #     },
+        # ),
         types.Tool(
-            name="create_entities",
-            description="Create multiple new entities in the knowledge graph",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entities": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {
-                                    "type": "string",
-                                    "description": "The name of the entity",
-                                },
-                                "entityType": {
-                                    "type": "string",
-                                    "description": "The type of the entity",
-                                },
-                                "observations": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "An array of observation contents associated with the entity",
-                                },
-                            },
-                            "required": ["name", "entityType", "observations"],
-                        },
-                    },
-                },
-                "required": ["entities"],
-            },
-        ),
-        types.Tool(
-            name="create_relations",
+            name="create_relation",
             description="Create multiple new relations between entities in the knowledge graph. Relations should be in active voice",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "relations": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "from_entity": {
-                                    "type": "string",
-                                    "description": "The name of the entity where the relation starts",
-                                },
-                                "to_entity": {
-                                    "type": "string",
-                                    "description": "The name of the entity where the relation ends",
-                                },
-                                "relation_type": {
-                                    "type": "string",
-                                    "description": "The type of the relation",
-                                },
-                            },
-                            "required": ["from", "to", "relation_type"],
-                        },
-                    },
-                },
-                "required": ["relations"],
-            },
+            inputSchema=Relation.schema(),
         ),
         types.Tool(
             name="add_observations",
-            description="Add new observations to existing entities in the knowledge graph",
+            description="Add new observations to an existing entity in the knowledge graph",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "observations": {
+                    "entity_name": {
+                        "type": "string",
+                        "description": "The name of the entity to add the observations to",
+                    },
+                    "contents": {
                         "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "entity_name": {
-                                    "type": "string",
-                                    "description": "The name of the entity to add the observations to",
-                                },
-                                "contents": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "An array of observation contents to add",
-                                },
-                            },
-                            "required": ["entity_name", "contents"],
-                        },
+                        "items": {"type": "string"},
+                        "description": "An array of observation contents to add",
                     },
                 },
-                "required": ["observations"],
+                "required": ["entity_name", "contents"],
             },
         ),
         types.Tool(
@@ -573,58 +498,40 @@ def list_tools_sync() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "deletions": {
+                    "entity_name": {
+                        "type": "string",
+                        "description": "The name of the entity containing the observations",
+                    },
+                    "observations": {
                         "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "entity_name": {
-                                    "type": "string",
-                                    "description": "The name of the entity containing the observations",
-                                },
-                                "observations": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "An array of observations to delete",
-                                },
-                            },
-                            "required": ["entity_name", "observations"],
-                        },
+                        "items": {"type": "string"},
+                        "description": "An array of observations to delete",
                     },
                 },
+                "required": ["entity_name", "observations"],
                 "required": ["deletions"],
             },
         ),
         types.Tool(
-            name="delete_relations",
-            description="Delete multiple relations from the knowledge graph",
+            name="delete_relation",
+            description="Delete a relation from the knowledge graph",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "relations": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "from_entity": {
-                                    "type": "string",
-                                    "description": "The name of the entity where the relation starts",
-                                },
-                                "to_entity": {
-                                    "type": "string",
-                                    "description": "The name of the entity where the relation ends",
-                                },
-                                "relation_type": {
-                                    "type": "string",
-                                    "description": "The type of the relation",
-                                },
-                            },
-                            "required": ["from", "to", "relation_type"],
-                        },
-                        "description": "An array of relations to delete",
+                    "from_entity": {
+                        "type": "string",
+                        "description": "The name of the entity where the relation starts",
+                    },
+                    "to_entity": {
+                        "type": "string",
+                        "description": "The name of the entity where the relation ends",
+                    },
+                    "relation_type": {
+                        "type": "string",
+                        "description": "The type of the relation",
                     },
                 },
-                "required": ["relations"],
+                "required": ["from", "to", "relation_type"],
             },
         ),
         types.Tool(
