@@ -3,6 +3,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 WORKDIR /app
 
 COPY src/ .
+RUN rm mcp_memory/.env
 
 RUN uv build
 
