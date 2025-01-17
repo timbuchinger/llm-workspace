@@ -4,12 +4,25 @@ import os
 import sys
 from typing import Annotated
 
-import mcp.server.sse
+import anyio
+import mcp.server.stdio
 import mcp.types as types
 from dotenv import load_dotenv
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
-from mcp.types import TextContent
+from mcp.server.sse import SseServerTransport
+from mcp.shared.exceptions import McpError
+from mcp.types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    ErrorData,
+    GetPromptResult,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
+    TextContent,
+    Tool,
+)
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 
@@ -20,9 +33,9 @@ DATABASE_NAME = "memories"
 ENTITIES_COLLECTION = "entities"
 RELATIONS_COLLECTION = "relations"
 
-server = Server("mcp_memory_python")
+server = Server("mcp_memory")
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-logger = logging.getLogger("mcp_memory_python")
+logger = logging.getLogger("mcp_memory")
 
 
 class Entity(BaseModel):
@@ -411,7 +424,12 @@ async def handle_call_tool(
     except Exception as e:
         logger.error(f"Error handling tool {name}: {e}")
         logger.exception(e, stack_info=True)
-        return Exception(f"Error handling tool {name}: {e}")
+        raise McpError(
+            ErrorData(
+                code=INTERNAL_ERROR,
+                message=f"Error handling tool {name}: {e}",
+            )
+        )
 
 
 def list_tools_sync() -> list[types.Tool]:
@@ -468,10 +486,10 @@ def list_tools_sync() -> list[types.Tool]:
                         "type": "string",
                         "description": "The name of the entity to add the observations to",
                     },
-                    "contents": {
+                    "observations": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "An array of observation contents to add",
+                        "description": "An array of observations to add",
                     },
                 },
                 "required": ["entity_name", "contents"],
@@ -574,22 +592,85 @@ def list_tools_sync() -> list[types.Tool]:
     ]
 
 
-async def main():
+def main():
     logger.info("Server is starting up")
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        # async with mcp.server.sse.sse_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="mcp_memory_python",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+
+    client = MongoClient(MONGO_URI)
+    db = client[DATABASE_NAME]
+
+    if ENTITIES_COLLECTION not in db.list_collection_names():
+        logger.info("Creating entities collection")
+        db.create_collection(ENTITIES_COLLECTION)
+
+    if RELATIONS_COLLECTION not in db.list_collection_names():
+        logger.info("Creating relations collection")
+        db.create_collection(RELATIONS_COLLECTION)
+
+    # async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+    #     await server.run(
+    #         read_stream,
+    #         write_stream,
+    #         InitializationOptions(
+    #             server_name="mcp_memory",
+    #             server_version="0.1.0",
+    #             capabilities=server.get_capabilities(
+    #                 notification_options=NotificationOptions(),
+    #                 experimental_capabilities={},
+    #             ),
+    #         ),
+    #     )
+
+    transport = "sse"
+    if transport == "sse":
+        logger.info("Using SSE transport")
+        from mcp.server.sse import SseServerTransport
+        from starlette.applications import Starlette
+        from starlette.routing import Mount, Route
+
+        sse = SseServerTransport("/messages/")
+
+        async def handle_sse(request):
+            async with sse.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await server.run(
+                    streams[0], streams[1], server.create_initialization_options()
+                )
+
+        starlette_app = Starlette(
+            debug=True,
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages/", app=sse.handle_post_message),
+            ],
         )
+
+        import uvicorn
+
+        # from fastapi import HTTPException, Request
+        # async def validate_bearer_token(request: Request):
+        #     auth_header = request.headers.get("Authorization")
+        #     if auth_header is None or not auth_header.startswith("Bearer "):
+        #         raise HTTPException(status_code=401, detail="Invalid or missing token")
+        #     token = auth_header.split(" ")[1]
+        #     # Add your token validation logic here
+        #     if token != "your_expected_token":
+        #         raise HTTPException(status_code=401, detail="Invalid token")
+        # starlette_app.add_middleware(validate_bearer_token)
+        uvicorn.run(starlette_app, host="0.0.0.0", port=8001)
+    else:
+        logger.info("Using stdio transport")
+        from mcp.server.stdio import stdio_server
+
+        async def arun():
+            async with stdio_server() as streams:
+                await server.run(
+                    streams[0], streams[1], server.create_initialization_options()
+                )
+
+        anyio.run(arun)
+
+    return 0
 
 
 # if __name__ == "__main__":

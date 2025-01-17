@@ -1,10 +1,11 @@
 [project]
-name = "mcp_memory_python"
+name = "mcp_memory"
 version = "0.0.1"
 description = "An MCP server project to manage memory backed by MongoDB"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+ "anyio>=4.8.0",
  "mcp>=1.2.0",
  "pymongo>=4.10.1",
  "pytest>=8.3.4",
@@ -20,4 +21,4 @@ requires = [ "hatchling",]
 build-backend = "hatchling.build"
 
 [project.scripts]
-mcp_memory_python = "mcp_memory_python:main"
+mcp_memory = "mcp_memory:main"

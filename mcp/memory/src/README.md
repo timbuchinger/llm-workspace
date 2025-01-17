@@ -1,11 +1,11 @@
 # Model Context - Memory
 
 ```bash
-uv run mcp_memory_python
+uv run mcp_memory
 ```
 
 ```bash
-npx @modelcontextprotocol/inspector uv run mcp_memory_python
+npx @modelcontextprotocol/inspector uv run mcp_memory
 npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 build/index.js arg1 arg2
 ```
 
@@ -18,9 +18,9 @@ npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 build/index.js 
       "command": "uv",
       "args": [
         "--directory",
-        "/path/to/git/repo/llm-workspace/mcp/memory_python/",
+        "/path/to/git/repo/llm-workspace/mcp/memory/",
         "run",
-        "mcp_memory_python"
+        "mcp_memory"
       ],
       "env": [
         "MONGO_URI": "mongodb://test:test@localhost:27017/"
@@ -32,24 +32,10 @@ npx @modelcontextprotocol/inspector -e KEY=value -e KEY2=$VALUE2 build/index.js 
 
 ```json
 {
-  `entities`: [
-    {
-      `name`: `Tim`,
-      `entity_type`: `Person`,
-      `observations`: []
-    }
-  ]
-}
-```
-
-```json
-{
-  "entities": [
-    {
-      "name": "Tim",
-      "entity_type": "Person",
-      "observations": []
-    }
-  ]
+  `contents`: [
+    `Lives in a cave`,
+    `Likes long walks on the beach`
+  ],
+  `entity_name`: `Someone`
 }
 ```
