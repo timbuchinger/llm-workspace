@@ -657,7 +657,7 @@ def main():
         #     if token != "your_expected_token":
         #         raise HTTPException(status_code=401, detail="Invalid token")
         # starlette_app.add_middleware(validate_bearer_token)
-        uvicorn.run(starlette_app, host="0.0.0.0", port=8001)
+        uvicorn.run(starlette_app, host="0.0.0.0", port=8000)
     else:
         logger.info("Using stdio transport")
         from mcp.server.stdio import stdio_server
