@@ -1,4 +1,4 @@
-name: Build and Push n8n
+name: Build and Push memory_mcp
 
 on:
   push:
