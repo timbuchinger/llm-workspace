@@ -124,16 +124,7 @@ def handle_search_similar_sync(arguments: dict) -> list[types.TextContent]:
 
     try:
 
-        query_params = {
-            "query_texts": [query],
-            "n_results": num_results,
-            "include": ["documents", "metadatas", "distances"],
-        }
-
-        embeddings = OllamaEmbeddings(
-            base_url=f"https://{os.environ.get('OLLAMA_URL')}:{int(os.environ.get('OLLAMA_PORT', 11434))}",
-            model="nomic-embed-text",
-        )
+        embeddings = initialize_embeddings()
 
         embedding_vector = embeddings.embed_query(query)
         logger.info("Embedding vector: " + str(embedding_vector))
@@ -163,17 +154,6 @@ def handle_search_similar_sync(arguments: dict) -> list[types.TextContent]:
 
 def main():
     logger.info("Server is starting up")
-
-    # client = MongoClient(MONGO_URI)
-    # db = client[DATABASE_NAME]
-
-    # if ENTITIES_COLLECTION not in db.list_collection_names():
-    #     logger.info("Creating entities collection")
-    #     db.create_collection(ENTITIES_COLLECTION)
-
-    # if RELATIONS_COLLECTION not in db.list_collection_names():
-    #     logger.info("Creating relations collection")
-    #     db.create_collection(RELATIONS_COLLECTION)
 
     # async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
     #     await server.run(
