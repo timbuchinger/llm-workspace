@@ -2,15 +2,13 @@ import logging
 import os
 
 import chromadb
-import mcp.server.stdio
 import mcp.types as types
 from chromadb.config import Settings
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_core.embeddings import Embeddings
 from langchain_ollama import OllamaEmbeddings
-from mcp.server import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
+from mcp.server import Server
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,7 +35,7 @@ def initialize_chroma_client(embeddings: Embeddings) -> Chroma:
         ),
         host=os.environ.get("CHROMA_HOST"),
         port=int(os.environ.get("CHROMA_PORT", 8000)),
-        ssl=False,  # TODO: Make configurable
+        ssl=os.environ.get("CHROMA_USE_SSL", "false").lower() == "true",
     )
     chroma_client.heartbeat()
 
