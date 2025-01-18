@@ -131,7 +131,8 @@ def handle_search_similar_sync(arguments: dict) -> list[types.TextContent]:
         }
 
         embeddings = OllamaEmbeddings(
-            base_url=f"https://{os.environ.get('OLLAMA_URL')}", model="nomic-embed-text"
+            base_url=f"https://{os.environ.get('OLLAMA_URL')}:{int(os.environ.get('OLLAMA_PORT', 11434))}",
+            model="nomic-embed-text",
         )
 
         embedding_vector = embeddings.embed_query(query)
