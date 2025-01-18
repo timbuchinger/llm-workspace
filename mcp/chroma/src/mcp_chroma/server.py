@@ -35,7 +35,7 @@ def initialize_chroma_client(embeddings: Embeddings) -> Chroma:
             chroma_client_auth_credentials=os.environ.get("CHROMA_AUTH_TOKEN"),
         ),
         host=os.environ.get("CHROMA_HOST"),
-        port="443",
+        port=int(os.environ.get("CHROMA_PORT", 8000)),
         ssl=True,
     )
     chroma_client.heartbeat()

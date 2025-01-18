@@ -33,4 +33,4 @@ jobs:
         push: true
         tags: |
           timbuchinger/mcp-chroma:latest
-          timbuchinger/mcp-chroma:${{ github.run_id }}
+          timbuchinger/mcp-chroma:${{ github.run_number }}

@@ -33,4 +33,4 @@ jobs:
         push: true
         tags: |
           timbuchinger/mcp-memory:latest
-          timbuchinger/mcp-memory:${{ github.run_id }}
+          timbuchinger/mcp-memory:${{ github.run_number }}
