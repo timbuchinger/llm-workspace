@@ -57,15 +57,15 @@ logger.info("Retrieved existing collection 'langchain'")
 
 server = Server("mcp_chroma")
 
-# Server command options
+
 server.command_options = {
     "search_similar": {
         "type": "object",
         "properties": {
             "query": {"type": "string"},
             "num_results": {"type": "integer", "minimum": 1, "default": 5},
-            "metadata_filter": {"type": "object", "additionalProperties": True},
-            "content_filter": {"type": "string"},
+            # "metadata_filter": {"type": "object", "additionalProperties": True},
+            # "content_filter": {"type": "string"},
         },
         "required": ["query"],
     },
@@ -84,8 +84,8 @@ async def handle_list_tools() -> list[types.Tool]:
                 "properties": {
                     "query": {"type": "string"},
                     "num_results": {"type": "integer", "minimum": 1, "default": 5},
-                    "metadata_filter": {"type": "object", "additionalProperties": True},
-                    "content_filter": {"type": "string"},
+                    # "metadata_filter": {"type": "object", "additionalProperties": True},
+                    # "content_filter": {"type": "string"},
                 },
                 "required": ["query"],
             },
@@ -159,23 +159,107 @@ def handle_search_similar_sync(arguments: dict) -> list[types.TextContent]:
         raise Exception(str(e))
 
 
-async def main():
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="mcp_chroma",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+def main():
+    logger.info("Server is starting up")
+
+    # client = MongoClient(MONGO_URI)
+    # db = client[DATABASE_NAME]
+
+    # if ENTITIES_COLLECTION not in db.list_collection_names():
+    #     logger.info("Creating entities collection")
+    #     db.create_collection(ENTITIES_COLLECTION)
+
+    # if RELATIONS_COLLECTION not in db.list_collection_names():
+    #     logger.info("Creating relations collection")
+    #     db.create_collection(RELATIONS_COLLECTION)
+
+    # async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+    #     await server.run(
+    #         read_stream,
+    #         write_stream,
+    #         InitializationOptions(
+    #             server_name="mcp_memory",
+    #             server_version="0.1.0",
+    #             capabilities=server.get_capabilities(
+    #                 notification_options=NotificationOptions(),
+    #                 experimental_capabilities={},
+    #             ),
+    #         ),
+    #     )
+
+    transport = "sse"
+    if transport == "sse":
+        logger.info("Using SSE transport")
+
+        from mcp.server.sse import SseServerTransport
+        from starlette.applications import Starlette
+        from starlette.routing import Mount, Route
+
+        sse = SseServerTransport("/messages/")
+
+        async def handle_sse(request):
+            async with sse.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await server.run(
+                    streams[0], streams[1], server.create_initialization_options()
+                )
+
+        starlette_app = Starlette(
+            debug=True,
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages/", app=sse.handle_post_message),
+            ],
         )
 
+        import uvicorn
 
-if __name__ == "__main__":
-    print("found it")
-    arguments = {"query": "AWS"}
-    print(handle_search_similar_sync(arguments))
+        # from fastapi import HTTPException, Request
+        # async def validate_bearer_token(request: Request):
+        #     auth_header = request.headers.get("Authorization")
+        #     if auth_header is None or not auth_header.startswith("Bearer "):
+        #         raise HTTPException(status_code=401, detail="Invalid or missing token")
+        #     token = auth_header.split(" ")[1]
+        #     # Add your token validation logic here
+        #     if token != "your_expected_token":
+        #         raise HTTPException(status_code=401, detail="Invalid token")
+        # starlette_app.add_middleware(validate_bearer_token)
+        port = os.environ.get("SSE_PORT", 8000)
+        logger.info(f"Starting uvicorn on port {port}")
+        uvicorn.run(starlette_app, host="0.0.0.0", port=int(port))
+    else:
+        logger.info("Using stdio transport")
+        from mcp.server.stdio import stdio_server
+
+        async def arun():
+            async with stdio_server() as streams:
+                await server.run(
+                    streams[0], streams[1], server.create_initialization_options()
+                )
+
+        anyio.run(arun)
+
+    return 0
+
+
+# async def main():
+#     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+#         await server.run(
+#             read_stream,
+#             write_stream,
+#             InitializationOptions(
+#                 server_name="mcp_chroma",
+#                 server_version="0.1.0",
+#                 capabilities=server.get_capabilities(
+#                     notification_options=NotificationOptions(),
+#                     experimental_capabilities={},
+#                 ),
+#             ),
+#         )
+
+
+# if __name__ == "__main__":
+#     print("found it")
+#     arguments = {"query": "AWS"}
+#     print(handle_search_similar_sync(arguments))

@@ -606,20 +606,6 @@ def main():
         logger.info("Creating relations collection")
         db.create_collection(RELATIONS_COLLECTION)
 
-    # async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-    #     await server.run(
-    #         read_stream,
-    #         write_stream,
-    #         InitializationOptions(
-    #             server_name="mcp_memory",
-    #             server_version="0.1.0",
-    #             capabilities=server.get_capabilities(
-    #                 notification_options=NotificationOptions(),
-    #                 experimental_capabilities={},
-    #             ),
-    #         ),
-    #     )
-
     transport = "sse"
     if transport == "sse":
         logger.info("Using SSE transport")
@@ -657,7 +643,9 @@ def main():
         #     if token != "your_expected_token":
         #         raise HTTPException(status_code=401, detail="Invalid token")
         # starlette_app.add_middleware(validate_bearer_token)
-        uvicorn.run(starlette_app, host="0.0.0.0", port=8000)
+        port = os.environ.get("SSE_PORT", 8000)
+        logger.info(f"Starting uvicorn on port {port}")
+        uvicorn.run(starlette_app, host="0.0.0.0", port=int(port))
     else:
         logger.info("Using stdio transport")
         from mcp.server.stdio import stdio_server
