@@ -21,7 +21,8 @@ load_dotenv()
 
 def initialize_embeddings():
     embeddings = OllamaEmbeddings(
-        base_url=f"https://{os.environ.get('OLLAMA_URL')}", model="nomic-embed-text"
+        base_url=f"http://{os.environ.get('OLLAMA_URL')}:{int(os.environ.get('OLLAMA_PORT', 11434))}",  # TODO: Make protocol configurable
+        model="nomic-embed-text",
     )
     return embeddings
 
@@ -36,7 +37,7 @@ def initialize_chroma_client(embeddings: Embeddings) -> Chroma:
         ),
         host=os.environ.get("CHROMA_HOST"),
         port=int(os.environ.get("CHROMA_PORT", 8000)),
-        ssl=True,
+        ssl=False,  # TODO: Make configurable
     )
     chroma_client.heartbeat()
 
