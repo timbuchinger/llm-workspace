@@ -88,7 +88,7 @@ def setup_relations(setup_manager):
 
 def test_list_tools():
     tools = asyncio.run(server.list_tools())
-    assert len(tools) == 9
+    assert len(tools) == 8
 
 
 def test_create_entity(setup_database):
