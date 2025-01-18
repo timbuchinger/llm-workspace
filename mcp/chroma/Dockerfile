@@ -10,7 +10,8 @@ COPY src/ .
 RUN rm -f mcp_chroma/.env
 
 # RUN uv sync
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync
+#--frozen --no-install-project --no-dev
 
 ENTRYPOINT ["uv", "run", "mcp_chroma"]
 
