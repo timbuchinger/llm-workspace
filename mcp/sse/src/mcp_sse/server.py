@@ -118,4 +118,5 @@ def search_similar(query: str) -> str:
 
 
 def main():
-    mcp.run(transport="sse")
+    # mcp.run(transport="sse")
+    mcp.run(transport="stdio")
