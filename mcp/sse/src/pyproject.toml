@@ -1,0 +1,19 @@
+[project]
+name = "mcp_sse"
+version = "0.0.1"
+description = "An MCP server project using SSE"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.2.0",
+]
+[[project.authors]]
+name = "Tim"
+email = ""
+
+[build-system]
+requires = [ "hatchling",]
+build-backend = "hatchling.build"
+
+[project.scripts]
+mcp_sse = "mcp_sse:main"
