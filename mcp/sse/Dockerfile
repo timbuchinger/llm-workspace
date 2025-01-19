@@ -16,6 +16,7 @@ RUN rm -f mcp_sse/.env
 
 RUN uv sync
 RUN uv tool install mcp-proxy
-mcp-proxy http://localhost:8080/sse
-ENTRYPOINT ["npx", "-y", "supergateway", "--stdio", "uv", "run", "mcp_sse"]
+ENV PATH="/root/.local/bin:$PATH"
+ENTRYPOINT ["mcp-proxy", "/usr/local/bin/uv", "run", "mcp_sse"]
+
 EXPOSE 8000
