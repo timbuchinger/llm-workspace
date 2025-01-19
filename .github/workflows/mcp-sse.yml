@@ -1,0 +1,41 @@
+name: Build and Push mcp-sse
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mcp/sse/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Install Rust and Cargo
+      run: |
+        curl https://sh.rustup.rs -sSf | sh -s -- -y
+        source $HOME/.cargo/env
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: ./mcp/sse
+        file: ./mcp/sse/Dockerfile
+        push: true
+        tags: |
+          timbuchinger/mcp-sse:latest
+          timbuchinger/mcp-sse:${{ github.run_number }}

@@ -5,6 +5,9 @@ description = "An MCP server project using SSE"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "chromadb>=0.5.23",
+    "langchain-chroma>=0.2.0",
+    "langchain-ollama>=0.2.2",
     "mcp[cli]>=1.2.0",
 ]
 [[project.authors]]
