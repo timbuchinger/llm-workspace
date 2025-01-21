@@ -1,20 +1,25 @@
 """
-title: RAG Filter Pipeline
+title: Get Prompt Template Pipeline
 author: Tim
 date: 2025-01-20
 version: 0.0.1
-license: MIT
-description: RAG filter pipeline.
-requirements: requests, llama-index chromadb, chromadb
+license:
+description: Get prompt template.
+requirements: requests, pydantic
 """
 
+import logging
 from typing import List, Optional
-from pydantic import BaseModel
-import chromadb
 
-# from schemas import OpenAIChatMessage
-from utils.pipelines.main import get_last_user_message
-from llama_index.vector_stores.chroma import ChromaVectorStore
+import requests
+from pydantic import BaseModel
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 class Pipeline:
@@ -48,7 +53,7 @@ class Pipeline:
         # self.valves = self.Valves(**{"pipelines": ["llama3.2:3b"]})
         self.valves = self.Valves(
             **{
-                "pipelines": ["*"],
+                "pipelines": ["llama3.2:3b", "llama3.1:8b"],
             }
         )
         pass
@@ -69,20 +74,20 @@ class Pipeline:
 
         print(body)
         print(user)
-        user_message = get_last_user_message(body["messages"])
+        user_message = body["messages"][0]["content"]
+        # user_message = get_last_user_message(body["messages"])
         print(user_message)
 
-        remote_db = chromadb.HttpClient("http://localhost:8000")
-        chroma_collection = remote_db.get_collection("langchain")
-        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-
-        prompt = """Based on the CONTEXT below, answer the user's QUESTION
-        <CONTEXT>
-        </CONTEXT>
-        <QUESTION>
-        {user_message}
-        </QUESTION>"""
-
-        print(f"Message count: {len(body['messages'])}")
-
-        return body
+        response = requests.post(
+            "http://prompt-app-svc:8000/prompt",
+            json={"question": user_message},
+        )
+        if response.status_code == 200:
+            prompt_response = response.json()
+            print(f"Prompt response: {prompt_response}")
+            body["messages"][0]["content"] = prompt_response["prompt"]
+            return body
+        else:
+            raise Exception(
+                f"Failed to get prompt: {response.status_code} - {response.text}"
+            )

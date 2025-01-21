@@ -1,0 +1,10 @@
+INSTRUCTIONS:
+Answer the users QUESTION using the DOCUMENT text below.
+Keep your answer ground in the facts of the DOCUMENT.
+If the DOCUMENT doesn’t contain the facts to answer the QUESTION return NONE
+
+DOCUMENT:
+[DOCUMENT_TEXT]
+
+QUESTION:
+[USER_MESSAGE]
