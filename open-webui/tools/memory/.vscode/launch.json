@@ -10,7 +10,7 @@
     "request": "launch",
     "module": "uvicorn",
     "args": [
-    "main:app",
+    "server:app",
     "--host",
     "127.0.0.1",
     "--port",
@@ -18,7 +18,8 @@
     "--reload"
     ],
     "jinja": true,
-    "cwd": "${workspaceFolder}/open-webui/tools/memory/memory"
+    "cwd": "${workspaceFolder}/memory",
+    "python": "${workspaceFolder}/.venv/bin/python"
   },
     {
       "name": "Python Debugger: Attach using Process Id",
