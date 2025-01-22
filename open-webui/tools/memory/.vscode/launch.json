@@ -15,7 +15,9 @@
     "127.0.0.1",
     "--port",
     "8000",
-    "--reload"
+    "--reload",
+    "--log-config",
+    "logging.yaml"
     ],
     "jinja": true,
     "cwd": "${workspaceFolder}/memory",
