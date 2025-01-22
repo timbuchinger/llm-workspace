@@ -1,20 +1,19 @@
 import logging
 import os
-from datetime import datetime
 import sys
-from typing import List
 import uuid
-from fastapi import FastAPI, HTTPException
-import chromadb
+from datetime import datetime
+from typing import List
 
+import chromadb
 from chromadb.config import Settings
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
 
 # from llama_index import SimpleKeywordTableIndex
 from llama_index.embeddings.ollama import OllamaEmbedding
-
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -33,10 +32,12 @@ class Memory:
     Represents a memory item to be stored in ChromaDB.
     """
 
-    def __init__(self, content: str, tags: List[str] = None):
+    def __init__(
+        self, content: str, tags: List[str] = None, date: datetime = datetime.now()
+    ):
         self.content = content
         self.tags = tags if tags else ["default"]
-        self.date = datetime.now()
+        self.date = date
 
 
 class MemoryRequest(BaseModel):
@@ -58,34 +59,16 @@ class MemoryTools:
     """
 
     def __init__(self):
-        # chroma_use_ssl = os.getenv("CHROMA_USE_SSL", "false").lower() == "true"
-        # chroma_protocol = "https" if chroma_use_ssl else "http"
-        # chroma_url = f"{chroma_protocol}://{os.getenv("CHROMA_URL")}:{os.getenv('CHROMA_PORT', 8000)}"
 
         ollama_use_ssl = os.getenv("OLLAMA_USE_SSL", "false").lower() == "true"
         ollama_protocol = "https" if ollama_use_ssl else "http"
         ollama_url = f"{ollama_protocol}://{os.getenv("OLLAMA_HOST")}:{os.getenv('OLLAMA_PORT', 11434)}"
 
-        # if not ollama_url:
-        #     raise ValueError(
-        #         "CHROMA_HOST and OLLAMA_HOST environment variables must be set."
-        #     )
         logger.info(f"Ollama URL: {ollama_url}")
         self.embedding = OllamaEmbedding(
             model_name="nomic-embed-text", base_url=ollama_url
         )
-        # self.vector_store = ChromaVectorStore()
-        # self.vector_store = ChromaVectorStore(
-        #     chroma_collection="memories",
-        #     host=os.getenv("CHROMA_URL"),
-        #     port=os.getenv("CHROMA_PORT", "8000"),
-        #     ssl=chroma_use_ssl,
-        #     embedding_model=embedding,
-        # )
-        # print(os.environ.get("CHROMA_HOST"))
-        # print(os.environ.get("CHROMA_PORT"))
-        # print(os.environ.get("CHROMA_USE_SSL"))
-        # print(os.environ.get("CHROMA_AUTH_TOKEN"))
+
         remote_db = chromadb.HttpClient(
             settings=Settings(
                 anonymized_telemetry=False,
@@ -96,10 +79,8 @@ class MemoryTools:
             port=int(os.environ.get("CHROMA_PORT", 8000)),
             ssl=os.environ.get("CHROMA_USE_SSL", "false").lower() == "true",
         )
-        # remote_db.create_collection("memories")
-        self.chroma_collection = remote_db.get_collection("memories")
 
-        # self.index = SimpleKeywordTableIndex(vector_store=self.vector_store)
+        self.chroma_collection = remote_db.get_collection("memories")
 
     def add_memory(self, memory: Memory):
         embedding = self.embedding.get_text_embedding(memory.content)
@@ -113,43 +94,41 @@ class MemoryTools:
         )
 
     def delete_memory(self, content: str):
-        self.chroma_collection.delete(where_document={"equals": content})
+        self.chroma_collection.delete(where_document={"$and": content})
 
     def search_memory(self, query: str):
         embedding = self.embedding.get_query_embedding(query)
-        return self.chroma_collection.query(query_embeddings=embedding, n_results=3)
+        # return self.chroma_collection.query(query_embeddings=embedding, n_results=3)
+
+        response = []
+        docs = self.chroma_collection.query(query_embeddings=embedding, n_results=3)
+        for index, document in enumerate(docs["documents"]):
+            response.append(docs["documents"][index])
+
+        return response
 
     def retrieve_all(self):
-        return self.chroma_collection.get()
+        # return self.chroma_collection.get()
+        response = []
+        docs = self.chroma_collection.get()
+        for index, document in enumerate(docs["documents"]):
+            response.append(docs["documents"][index])
+
+        return response
 
     def get_by_tag(self, tags: List[str]):
         docs = self.retrieve_all()
-        # print(docs)
-        # for index, test in enumerate(docs):
-        #     if "tags" in docs["metadatas"][index]:
-        #         if any(
-        #             tag.lower() in docs["metadatas"][index]["tags"].split(",")
-        #             for tag in tags
-        #         ):
-        #             print("found match")
-        #             print(docs["documents"][index])
+
+        response = []
 
         for index, document in enumerate(docs["documents"]):
             metadata = docs["metadatas"][index]
-            print(f"Document: {document}")
-            print(f"metadata: {metadata}")
-            for i in metadata:
-                print(i)
-            # if any(item == "tags" for item in metadata):
-            #     print("Found tags")
-            if any(tag.lower() in metadata["tags"] for tag in tags):
-                print("Found match")
-
-        # return [
-        #     doc
-        #     for doc in self.retrieve_all()
-        #     if any(tag.lower() in doc["metadata"]["tags"] for tag in tags)
-        # ]
+            # print(f"Document: {document}")
+            # print(f"metadata: {metadata}")
+            if any(i.strip() in metadata["tags"].split(",") for i in tags):
+                # if bool(set(metadata["tags"].split(",").strip()) & set(tags)):
+                response.append(document)
+        return response
 
 
 tools = MemoryTools()
@@ -178,7 +157,7 @@ def delete_memory(content: str):
 def search_memory(query_request: QueryRequest):
     try:
         results = tools.search_memory(query_request.query)
-        return {"results": results}
+        return {"memories": results}
     except Exception as e:
         logger.exception(e, stack_info=True)
         raise HTTPException(status_code=500, detail=str(e))
