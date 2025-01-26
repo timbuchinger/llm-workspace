@@ -42,6 +42,66 @@ def log_function_call(func):
     return wrapper
 
 
+logging.basicConfig(
+    stream=sys.stderr,
+    level=logging.DEBUG,
+    format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
+)
+logger = logging.getLogger("tools_memory")
+
+
+class EventEmitter:
+    def __init__(self, event_emitter: Callable[[dict], Any] = None):
+        self.event_emitter = event_emitter
+
+    async def emit(self, description="Unknown state", status="in_progress", done=False):
+        if self.event_emitter:
+            await self.event_emitter(
+                {
+                    "type": "status",
+                    "data": {
+                        "status": status,
+                        "description": description,
+                        "done": done,
+                    },
+                }
+            )
+
+
+def decorator(func):
+    def wrap(*args, **kwargs):
+        # Log the function name and arguments
+        logger.debug(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
+
+        # Call the original function
+        result = func(*args, **kwargs)
+
+        # Log the return value
+        logger.debug(f"{func.__name__} returned: {result}")
+
+        # Return the result
+        return result
+
+    return wrap
+
+
+def dump_args(func):
+    """
+    Decorator to print function call details.
+
+    This includes parameters names and effective values.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        func_args = inspect.signature(func).bind(*args, **kwargs).arguments
+        func_args_str = ", ".join(map("{0[0]} = {0[1]!r}".format, func_args.items()))
+        logger.debug(f"{func.__module__}.{func.__qualname__} ( {func_args_str} )")
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 class Tools:
     class Valves(BaseModel):
         unpack_responses: bool = Field(

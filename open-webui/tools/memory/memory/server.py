@@ -11,7 +11,7 @@ from chromadb.config import Settings
 
 # from custom_logging_filter import HealthCheckFilter
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 
 # from llama_index import SimpleKeywordTableIndex
 from llama_index.embeddings.ollama import OllamaEmbedding
@@ -51,6 +51,22 @@ def log_function_call(func):
 
 
 app = FastAPI()
+api_router = APIRouter()
+
+
+async def log_request_info(request: Request):
+    if request.method not in ("POST", "PUT", "PATCH"):
+        return
+    request_body = await request.json()
+
+    logger.info(
+        f"{request.method} request to {request.url} metadata\n"
+        f"\tHeaders: {request.headers}\n"
+        f"\tBody: {request_body}\n"
+        f"\tPath Params: {request.path_params}\n"
+        f"\tQuery Params: {request.query_params}\n"
+        f"\tCookies: {request.cookies}\n"
+    )
 
 
 class Memory:
@@ -169,13 +185,13 @@ class MemoryTools:
 tools = MemoryTools()
 
 
-@app.get("/healthz")
+@api_router.get("/healthz")
 async def healthz():
     return {"status": "ok"}
 
 
 @log_function_call
-@app.post("/add_memory")
+@api_router.post("/add_memory")
 def add_memory(memory_request: MemoryRequest):
     memory = Memory(content=memory_request.content, tags=memory_request.tags)
     try:
@@ -187,18 +203,18 @@ def add_memory(memory_request: MemoryRequest):
 
 
 @log_function_call
-@app.delete("/delete_memory")
+@api_router.delete("/delete_memory")
 def delete_memory(content: str):
     try:
         tools.delete_memory(content)
-        return {"message": "Memory deleted successfully."}
+        return {"status": "success", "message": "Memory deleted successfully"}
     except Exception as e:
         logger.exception(e, stack_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @log_function_call
-@app.post("/search_memory")
+@api_router.post("/search_memory")
 def search_memory(query_request: QueryRequest):
     try:
         results = tools.search_memory(query_request.query)
@@ -209,7 +225,7 @@ def search_memory(query_request: QueryRequest):
 
 
 @log_function_call
-@app.get("/retrieve_all")
+@api_router.get("/retrieve_all")
 def retrieve_all():
     try:
         return {"memories": tools.retrieve_all()}
@@ -219,7 +235,7 @@ def retrieve_all():
 
 
 @log_function_call
-@app.post("/get_by_tag")
+@api_router.post("/get_by_tag")
 def get_by_tag(tags_request: TagsRequest):
     try:
         results = tools.get_by_tag(tags_request.tags)
@@ -227,3 +243,6 @@ def get_by_tag(tags_request: TagsRequest):
     except Exception as e:
         logger.exception(e, stack_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+app.include_router(api_router, dependencies=[Depends(log_request_info)])
