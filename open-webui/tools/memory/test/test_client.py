@@ -1,47 +1,204 @@
 from unittest.mock import patch
 
 import pytest
-import requests
-
-from memory.client import add_memory
-
-BASE_URL = "http://localhost:8000"
+from memory.client import Tools
 
 
 @pytest.fixture
-def mock_post():
-    with patch("requests.post") as mock:
-        yield mock
+def tools():
+    return Tools()
 
 
-def test_add_memory_success(mock_post):
-    mock_response = mock_post.return_value
-    mock_response.json.return_value = {"status": "success", "id": "123"}
-    mock_response.status_code = 200
+@pytest.mark.asyncio
+@patch("requests.post")
+async def test_add_memory_unpack_responses_true(mock_post, tools):
+    tools.valves = Tools.Valves(unpack_responses=True)
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {"message": "Memory added successfully"}
 
-    content = "Sample memory content"
-    tags = ["tag1", "tag2"]
-    response = add_memory(content, tags)
-
-    mock_post.assert_called_once_with(
-        f"{BASE_URL}/add_memory", json={"content": content, "tags": tags}
-    )
-    assert response == {"status": "success", "id": "123"}
+    result = await tools.add_memory("Test memory", ["tag1", "tag2"])
+    assert result == "Memory added successfully"
 
 
-def test_add_memory_failure(mock_post):
-    mock_response = mock_post.return_value
-    mock_response.json.return_value = {
-        "status": "error",
-        "message": "Failed to add memory",
+@pytest.mark.asyncio
+@patch("requests.post")
+async def test_add_memory_unpack_responses_false(mock_post, tools):
+    tools.valves = Tools.Valves(unpack_responses=False)
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {"message": "Memory added successfully"}
+
+    result = await tools.add_memory("Test memory", ["tag1", "tag2"])
+    assert result == {"message": "Memory added successfully"}
+
+
+@pytest.mark.asyncio
+@patch("requests.delete")
+async def test_delete_memory_unpack_responses_true(mock_delete, tools):
+    tools.valves = Tools.Valves(unpack_responses=True)
+    mock_delete.return_value.status_code = 200
+    mock_delete.return_value.json.return_value = {
+        "message": "Memory deleted successfully"
     }
-    mock_response.status_code = 400
 
-    content = "Sample memory content"
-    tags = ["tag1", "tag2"]
-    response = add_memory(content, tags)
+    result = await tools.delete_memory("Test memory")
+    assert result == "Memory deleted successfully"
 
-    mock_post.assert_called_once_with(
-        f"{BASE_URL}/add_memory", json={"content": content, "tags": tags}
-    )
-    assert response == {"status": "error", "message": "Failed to add memory"}
+
+@pytest.mark.asyncio
+@patch("requests.delete")
+async def test_delete_memory_unpack_responses_false(mock_delete, tools):
+    tools.valves = Tools.Valves(unpack_responses=False)
+    mock_delete.return_value.status_code = 200
+    mock_delete.return_value.json.return_value = {
+        "message": "Memory deleted successfully"
+    }
+
+    result = await tools.delete_memory("Test memory")
+    assert result == {"message": "Memory deleted successfully"}
+
+
+@pytest.mark.asyncio
+@patch("requests.post")
+async def test_search_memory_unpack_responses_true(mock_post, tools):
+    tools.valves = Tools.Valves(unpack_responses=True)
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+    result = await tools.search_memory("Test query")
+    assert "1: Test memory (tags: ['tag1']) 2023-01-01T00:00:00Z\n" in result
+
+
+@pytest.mark.asyncio
+@patch("requests.post")
+async def test_search_memory_unpack_responses_false(mock_post, tools):
+    tools.valves = Tools.Valves(unpack_responses=False)
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+    result = await tools.search_memory("Test query")
+    assert result == {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+
+@pytest.mark.asyncio
+@patch("requests.get")
+async def test_retrieve_all_unpack_responses_true(mock_get, tools):
+    tools.valves = Tools.Valves(unpack_responses=True)
+    mock_get.return_value.status_code = 200
+    mock_get.return_value.json.return_value = {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+    result = await tools.retrieve_all()
+    assert "1: Test memory (tags: ['tag1']) 2023-01-01T00:00:00Z\n" in result
+
+
+@pytest.mark.asyncio
+@patch("requests.get")
+async def test_retrieve_all_unpack_responses_false(mock_get, tools):
+    tools.valves = Tools.Valves(unpack_responses=False)
+    mock_get.return_value.status_code = 200
+    mock_get.return_value.json.return_value = {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+    result = await tools.retrieve_all()
+    assert result == {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+
+@pytest.mark.asyncio
+@patch("requests.post")
+async def test_get_by_tag_unpack_responses_true(mock_post, tools):
+    tools.valves = Tools.Valves(unpack_responses=True)
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+    result = await tools.get_by_tag(["tag1"])
+    assert "1: Test memory (tags: ['tag1']) 2023-01-01T00:00:00Z\n" in result
+
+
+@pytest.mark.asyncio
+@patch("requests.post")
+async def test_get_by_tag_unpack_responses_false(mock_post, tools):
+    tools.valves = Tools.Valves(unpack_responses=False)
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }
+
+    result = await tools.get_by_tag(["tag1"])
+    assert result == {
+        "memories": [
+            {
+                "id": 1,
+                "content": "Test memory",
+                "tags": ["tag1"],
+                "timestamp": "2023-01-01T00:00:00Z",
+            }
+        ]
+    }

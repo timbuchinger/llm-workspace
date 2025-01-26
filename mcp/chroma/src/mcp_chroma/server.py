@@ -34,7 +34,7 @@ def initialize_embeddings():
         else "http"
     )
     embeddings = OllamaEmbeddings(
-        base_url=f"{protocol}://{os.environ.get('OLLAMA_URL')}:{int(os.environ.get('OLLAMA_PORT', 11434))}",  # TODO: Make protocol configurable
+        base_url=f"{protocol}://{os.environ.get('OLLAMA_HOST')}:{int(os.environ.get('OLLAMA_PORT', 11434))}",  # TODO: Make protocol configurable
         model="nomic-embed-text",
     )
     return embeddings
@@ -54,11 +54,11 @@ def initialize_chroma_client(embeddings: Embeddings) -> Chroma:
     )
     chroma_client.heartbeat()
 
-    chroma_client.get_or_create_collection("langchain")
+    chroma_client.get_or_create_collection("notion")
 
     vector_store = Chroma(
         client=chroma_client,
-        collection_name="langchain",
+        collection_name="notion",
         embedding_function=embeddings,
     )
     return vector_store

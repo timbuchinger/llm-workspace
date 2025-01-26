@@ -3,10 +3,13 @@ import os
 import sys
 import uuid
 from datetime import datetime
+from functools import wraps
 from typing import List
 
 import chromadb
 from chromadb.config import Settings
+
+# from custom_logging_filter import HealthCheckFilter
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 
@@ -17,12 +20,35 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        return "/healthz" not in record.getMessage()
+
+
 logging.basicConfig(
     stream=sys.stderr,
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
 )
 logger = logging.getLogger("tools_memory")
+# logger.addFilter(HealthCheckFilter())
+
+
+def log_function_call(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        class_name = args[0].__class__.__name__ if args else ""
+        method_name = func.__name__
+        logger.info(
+            f"Calling {class_name}.{method_name} with args={args[1:]} kwargs={kwargs}"
+        )
+        result = func(*args, **kwargs)
+        logger.info(f"{class_name}.{method_name} returned {result}")
+        return result
+
+    return wrapper
+
 
 app = FastAPI()
 
@@ -38,6 +64,9 @@ class Memory:
         self.content = content
         self.tags = tags if tags else ["default"]
         self.date = date
+
+    def __str__(self):
+        return f"Memory(content={self.content}, tags={self.tags}, date={self.date})"
 
 
 class MemoryRequest(BaseModel):
@@ -82,7 +111,9 @@ class MemoryTools:
 
         self.chroma_collection = remote_db.get_collection("memories")
 
+    @log_function_call
     def add_memory(self, memory: Memory):
+        logger.info(f"Adding memory: {memory}")
         embedding = self.embedding.get_text_embedding(memory.content)
         self.chroma_collection.add(
             ids=[str(uuid.uuid4())],
@@ -93,9 +124,11 @@ class MemoryTools:
             embeddings=[embedding],
         )
 
+    @log_function_call
     def delete_memory(self, content: str):
         self.chroma_collection.delete(where_document={"$and": content})
 
+    @log_function_call
     def search_memory(self, query: str):
         embedding = self.embedding.get_query_embedding(query)
         # return self.chroma_collection.query(query_embeddings=embedding, n_results=3)
@@ -107,6 +140,7 @@ class MemoryTools:
 
         return response
 
+    @log_function_call
     def retrieve_all(self):
         # return self.chroma_collection.get()
         response = []
@@ -116,6 +150,7 @@ class MemoryTools:
 
         return response
 
+    @log_function_call
     def get_by_tag(self, tags: List[str]):
         docs = self.retrieve_all()
 
@@ -134,25 +169,35 @@ class MemoryTools:
 tools = MemoryTools()
 
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
+@log_function_call
 @app.post("/add_memory")
 def add_memory(memory_request: MemoryRequest):
     memory = Memory(content=memory_request.content, tags=memory_request.tags)
     try:
         tools.add_memory(memory)
-        return {"message": "Memory added successfully."}
+        return {"status": "success", "message": "Memory added successfully"}
     except Exception as e:
+        logger.exception(e, stack_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@log_function_call
 @app.delete("/delete_memory")
 def delete_memory(content: str):
     try:
         tools.delete_memory(content)
         return {"message": "Memory deleted successfully."}
     except Exception as e:
+        logger.exception(e, stack_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@log_function_call
 @app.post("/search_memory")
 def search_memory(query_request: QueryRequest):
     try:
@@ -163,18 +208,22 @@ def search_memory(query_request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@log_function_call
 @app.get("/retrieve_all")
 def retrieve_all():
     try:
         return {"memories": tools.retrieve_all()}
     except Exception as e:
+        logger.exception(e, stack_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@log_function_call
 @app.post("/get_by_tag")
 def get_by_tag(tags_request: TagsRequest):
     try:
         results = tools.get_by_tag(tags_request.tags)
         return {"results": results}
     except Exception as e:
+        logger.exception(e, stack_info=True)
         raise HTTPException(status_code=500, detail=str(e))

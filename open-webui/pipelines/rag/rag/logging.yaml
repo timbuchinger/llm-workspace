@@ -28,7 +28,6 @@ loggers:
     level: INFO
     handlers: [console]
     propagate: False
-    filters: [health_check_filter]
   server:
     level: DEBUG
     handlers: [console]

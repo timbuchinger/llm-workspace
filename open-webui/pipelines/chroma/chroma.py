@@ -39,7 +39,7 @@ def initialize_embeddings():
         else "http"
     )
     embeddings = OllamaEmbeddings(
-        base_url=f"{protocol}://{os.environ.get('OLLAMA_URL')}:{os.environ.get('OLLAMA_PORT', 11434)}",
+        base_url=f"{protocol}://{os.environ.get('OLLAMA_HOST')}:{os.environ.get('OLLAMA_PORT', 11434)}",
         model="nomic-embed-text",
     )
     return embeddings
@@ -59,11 +59,11 @@ def initialize_chroma_client(embeddings: Embeddings) -> Chroma:
     )
     chroma_client.heartbeat()
 
-    chroma_client.get_or_create_collection("langchain")
+    chroma_client.get_or_create_collection("notion")
 
     vector_store = Chroma(
         client=chroma_client,
-        collection_name="langchain",
+        collection_name="notion",
         embedding_function=embeddings,
     )
     return vector_store
@@ -132,7 +132,7 @@ class Pipeline:
                 prompt = ChatPromptTemplate.from_template(template)
 
                 model = OllamaLLM(
-                    base_url=f"http://{os.environ.get('OLLAMA_URL')}:{os.environ.get('OLLAMA_PORT', 11434)}",
+                    base_url=f"http://{os.environ.get('OLLAMA_HOST')}:{os.environ.get('OLLAMA_PORT', 11434)}",
                     model="llama3.1:8b",
                 )
 

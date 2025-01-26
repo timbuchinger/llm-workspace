@@ -1,0 +1,10 @@
+INSTRUCTIONS:
+Answer the users QUESTION using the DOCUMENTS text below.
+Keep your answer ground in the facts of the DOCUMENTS.
+If the DOCUMENTS do not contain the facts to answer the QUESTION return "I cannot answer that question based on the information provided.".
+
+DOCUMENTS:
+[DOCUMENT_TEXT]
+
+QUESTION:
+[USER_MESSAGE]
