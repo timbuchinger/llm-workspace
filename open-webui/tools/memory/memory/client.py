@@ -9,6 +9,7 @@ license:
 requirements: requests
 """
 
+import inspect
 import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Optional
@@ -16,20 +17,28 @@ from typing import Any, Awaitable, Callable, Optional
 import requests
 from pydantic import BaseModel, Field
 
-BASE_URL = "http://tools-memory-svc:8000"
 logging.basicConfig(
     level=logging.DEBUG,
     format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
 )
-
-
 logger = logging.getLogger("tools_memory")
 logger.setLevel("DEBUG")
 
 
-def log_function_call(func):
+def log_function_call(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+        class_name = args[0].__class__.__name__ if args else ""
+        method_name = func.__name__
+        logger.info(
+            f"Calling {class_name}.{method_name} with args={args[1:]} kwargs={kwargs}"
+        )
+        result = await func(*args, **kwargs)
+        logger.info(f"{class_name}.{method_name} returned {result}")
+        return result
+
+    @wraps(func)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
         class_name = args[0].__class__.__name__ if args else ""
         method_name = func.__name__
         logger.info(
@@ -39,15 +48,27 @@ def log_function_call(func):
         logger.info(f"{class_name}.{method_name} returned {result}")
         return result
 
-    return wrapper
+    if inspect.iscoroutinefunction(func):
+        return async_wrapper
+    return sync_wrapper
 
 
-logging.basicConfig(
-    stream=sys.stderr,
-    level=logging.DEBUG,
-    format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
-)
-logger = logging.getLogger("tools_memory")
+async def handle_excepton(
+    exception: Exception, event_emitter: Callable[[dict], Any] = None
+):
+    logger.exception("Exception occurred while invoking tool")
+    if event_emitter:
+        await event_emitter(
+            {
+                "type": "status",
+                "data": {
+                    "description": "Exception occurred.",
+                    "done": True,
+                },
+            }
+        )
+    # logger.error(f"Exception: {exception}")
+    return {"status": "error", "message": str(exception)}
 
 
 class EventEmitter:
@@ -68,51 +89,28 @@ class EventEmitter:
             )
 
 
-def decorator(func):
-    def wrap(*args, **kwargs):
-        # Log the function name and arguments
-        logger.debug(f"Calling {func.__name__} with args: {args}, kwargs: {kwargs}")
-
-        # Call the original function
-        result = func(*args, **kwargs)
-
-        # Log the return value
-        logger.debug(f"{func.__name__} returned: {result}")
-
-        # Return the result
-        return result
-
-    return wrap
-
-
-def dump_args(func):
-    """
-    Decorator to print function call details.
-
-    This includes parameters names and effective values.
-    """
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        func_args = inspect.signature(func).bind(*args, **kwargs).arguments
-        func_args_str = ", ".join(map("{0[0]} = {0[1]!r}".format, func_args.items()))
-        logger.debug(f"{func.__module__}.{func.__qualname__} ( {func_args_str} )")
-        return func(*args, **kwargs)
-
-    return wrapper
-
-
 class Tools:
     class Valves(BaseModel):
+        server_url: str = Field(
+            default="http://tools-memory-svc:8000",
+            description="The endpoint of the server to use.",
+        )
         unpack_responses: bool = Field(
             default=True,
             description="Should the responses be unpacked from JSON to human-readable strings.",
         )
 
+    class UserValves(BaseModel):
+        chroma_collection: str = Field(
+            default="memories",
+            description="The name of the collection to use in ChromaDB.",
+        )
+
     def __init__(self):
 
         self.citation = True
-        self.Valves = Tools.Valves
+        self.valves = Tools.Valves()
+        self.user_valves = Tools.UserValves()
 
     # async def emit_event(self, description: str, done: bool) -> None:
     #     if __event_emitter__:
@@ -130,7 +128,7 @@ class Tools:
     async def add_memory(
         self,
         content: str,
-        tags: list = [],
+        tags: list[str],
         __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None,
     ) -> str:
         """
@@ -142,9 +140,10 @@ class Tools:
 
         Returns:
             str: A message indicating success or failure, e.g.,
-                 {"status": "success", "message": "Memory added successfully"} or
-                 {"status": "error", "message": "Error message"}.
+                 - On success: "Memory added successfully"
+                 - On error: "Error message"
         """
+        logger.debug("Adding memory")
         if __event_emitter__:
             await __event_emitter__(
                 {
@@ -155,47 +154,44 @@ class Tools:
                     },
                 }
             )
-        payload = {"content": content, "tags": tags}
+        logger.debug("Adding memory")
+        payload = {
+            "content": content,
+            "tags": tags,
+            "chroma_collection_name": self.user_valves.chroma_collection,
+        }
+        logger.debug("Adding memory")
         try:
-            response = requests.post(f"{BASE_URL}/add_memory", json=payload)
+            response = requests.post(
+                f"{self.valves.server_url}/add_memory", json=payload
+            )
             response.raise_for_status()
-            logger.info(f"Server response: {response.json()}")
-
+            logger.debug(f"Server response: {str(response.json())}")
+            if __event_emitter__:
+                await __event_emitter__(
+                    {
+                        "type": "status",
+                        "data": {
+                            "description": "Memory added.",
+                            "done": True,
+                        },
+                    }
+                )
             if self.valves.unpack_responses:
+                logger.debug("Unpacking response")
                 return response.json()["message"]
             else:
+                logger.warning("Packing response")
                 return response.json()
-        except requests.exceptions.RequestException as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Request exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
-        except Exception as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
+        except (requests.exceptions.RequestException, Exception) as e:
+            await handle_excepton(e, __event_emitter__)
 
     @log_function_call
     async def delete_memory(
         self,
         content: str,
         __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None,
-    ) -> dict:
+    ) -> str:
         """
         Deletes a memory from the server.
 
@@ -203,9 +199,9 @@ class Tools:
             content (str): The exact content of the memory to delete.
 
         Returns:
-            dict: A structured response indicating success or failure:
-                - On success: {"status": "success", "message": "Memory deleted successfully"}
-                - On failure: {"status": "error", "message": "Error message"}
+            str: A messageindicating success or failure:
+                - On success: "Memory deleted successfully"
+                - On failure: "Error message"
         """
         if __event_emitter__:
             await __event_emitter__(
@@ -220,45 +216,26 @@ class Tools:
 
         try:
             response = requests.delete(
-                f"{BASE_URL}/delete_memory", params={"content": content}
+                f"{self.valves.server_url}/delete_memory",
+                json={
+                    "content": content,
+                    "chroma_collection_name": self.user_valves.chroma_collection,
+                },
             )
             response.raise_for_status()
             if self.valves.unpack_responses:
                 return response.json()["message"]
             else:
                 return response.json()
-        except requests.exceptions.RequestException as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Request exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
-        except Exception as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            return {"status": "error", "message": str(e)}
+        except (requests.exceptions.RequestException, Exception) as e:
+            await handle_excepton(e, __event_emitter__)
 
     @log_function_call
     async def search_memory(
         self,
         query: str,
         __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None,
-    ) -> list:
+    ) -> str:
         """
         Searches for memories based on a query.
 
@@ -267,8 +244,8 @@ class Tools:
 
         Returns:
             list: A list of matching memories in the format:
-                  [{"id": int, "content": str, "tags": list, "timestamp": str}, ...]
-                  or an empty list if no matches are found.
+                  "ID: content (tags: tag1, tag2, etc) date"
+                  or an empty string if no matches are found.
         """
         if __event_emitter__:
             await __event_emitter__(
@@ -281,55 +258,36 @@ class Tools:
                 }
             )
 
-        payload = {"query": query}
+        payload = {
+            "query": query,
+            "chroma_collection_name": self.user_valves.chroma_collection,
+        }
         try:
-            response = requests.post(f"{BASE_URL}/search_memory", json=payload)
+            response = requests.post(
+                f"{self.valves.server_url}/search_memory", json=payload
+            )
             response.raise_for_status()
             if self.valves.unpack_responses:
                 output = ""
                 for memory in response.json().get("memories", []):
-                    output += f"{memory["id"]}: {memory["content"]} (tags: {memory["tags"]}) {memory["timestamp"]}\n"
+                    output += f"{memory['id']}: {memory['content']} (tags: {memory['tags']}) {memory['date']}\n"
                 return output
             else:
                 return response.json()
-        except requests.exceptions.RequestException as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Request exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
-        except Exception as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
+        except (requests.exceptions.RequestException, Exception) as e:
+            await handle_excepton(e, __event_emitter__)
 
     @log_function_call
     async def retrieve_all(
         self, __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None
-    ) -> list:
+    ) -> str:
         """
         Retrieves all memories from the server.
 
         Returns:
-            list: A list of all stored memories in the format:
-                  [{"id": int, "content": str, "tags": list, "timestamp": str}, ...]
-                  or an empty list if no memories exist.
+            list: A list of all memories in the format:
+                  "ID: content (tags: tag1, tag2, etc) date"
+                  or an empty string if no memories are found.
         """
         if __event_emitter__:
             await __event_emitter__(
@@ -342,48 +300,28 @@ class Tools:
                 }
             )
         try:
-            response = requests.get(f"{BASE_URL}/retrieve_all")
+            data = {"chroma_collection_name": self.user_valves.chroma_collection}
+            response = requests.post(
+                f"{self.valves.server_url}/retrieve_all", json=data
+            )
             response.raise_for_status()
             if self.valves.unpack_responses:
                 output = ""
                 for memory in response.json().get("memories", []):
-                    output += f"{memory["id"]}: {memory["content"]} (tags: {memory["tags"]}) {memory["timestamp"]}\n"
+                    logger.debug(f"Memory: {memory}")
+                    output += f"{memory['id']}: {memory['content']} (tags: {memory['tags']}) {memory['date']}\n"
                 return output
             else:
                 return response.json()
-        except requests.exceptions.RequestException as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Request exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
-        except Exception as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
+        except (requests.exceptions.RequestException, Exception) as e:
+            await handle_excepton(e, __event_emitter__)
 
     @log_function_call
     async def get_by_tag(
         self,
         tags: list[str],
         __event_emitter__: Optional[Callable[[Any], Awaitable[None]]] = None,
-    ) -> list:
+    ) -> str:
         """
         Retrieves memories based on tags.
 
@@ -392,8 +330,8 @@ class Tools:
 
         Returns:
             list: A list of matching memories in the format:
-                  [{"id": int, "content": str, "tags": list, "timestamp": str}, ...]
-                  or an empty list if no matches are found.
+                  "ID: content (tags: tag1, tag2, etc) date"
+                  or an empty string if no matches are found.
         """
         if __event_emitter__:
             await __event_emitter__(
@@ -405,40 +343,21 @@ class Tools:
                     },
                 }
             )
-        payload = {"tags": tags}
+        payload = {
+            "tags": tags,
+            "chroma_collection_name": self.user_valves.chroma_collection,
+        }
         try:
-            response = requests.post(f"{BASE_URL}/get_by_tag", json=payload)
+            response = requests.post(
+                f"{self.valves.server_url}/get_by_tag", json=payload
+            )
             response.raise_for_status()
             if self.valves.unpack_responses:
                 output = ""
                 for memory in response.json().get("memories", []):
-                    output += f"{memory["id"]}: {memory["content"]} (tags: {memory["tags"]}) {memory["timestamp"]}\n"
+                    output += f"{memory['id']}: {memory['content']} (tags: {memory['tags']}) {memory['date']}\n"
                 return output
             else:
                 return response.json()
-        except requests.exceptions.RequestException as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Request exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
-        except Exception as e:
-            if __event_emitter__:
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": "Exception occurred.",
-                            "done": True,
-                        },
-                    }
-                )
-            logger.error(f"exception: {e}")
-            return {"status": "error", "message": str(e)}
+        except (requests.exceptions.RequestException, Exception) as e:
+            await handle_excepton(e, __event_emitter__)

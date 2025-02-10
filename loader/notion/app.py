@@ -192,7 +192,7 @@ if __name__ == "__main__":
     data = {
         "query": "",
         "filter": {"value": "page", "property": "object"},
-        "sort": {"direction": "ascending", "timestamp": "last_edited_time"},
+        "sort": {"direction": "ascending", "date": "last_edited_time"},
     }
     response = requests.post(url, headers=headers, data=data)
     print(NOTION_API_TOKEN)
