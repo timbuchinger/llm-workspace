@@ -5,24 +5,11 @@ import sys
 from typing import Annotated
 
 import anyio
-import mcp.server.stdio
 import mcp.types as types
 from dotenv import load_dotenv
-from mcp.server import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-from mcp.server.sse import SseServerTransport
+from mcp.server import Server
 from mcp.shared.exceptions import McpError
-from mcp.types import (
-    INTERNAL_ERROR,
-    INVALID_PARAMS,
-    ErrorData,
-    GetPromptResult,
-    Prompt,
-    PromptArgument,
-    PromptMessage,
-    TextContent,
-    Tool,
-)
+from mcp.types import INTERNAL_ERROR, ErrorData, TextContent
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 

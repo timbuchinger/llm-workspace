@@ -1,11 +1,14 @@
 import argparse
 import logging
 import os
+import re
 import sys
+import uuid
 from datetime import datetime
 
 import chromadb
 import requests
+import tiktoken
 from chromadb.config import Settings
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
@@ -105,17 +108,62 @@ def initialize_chroma_client():
         ssl=True,
     )
     chroma_client.heartbeat()
-
-    chroma_client.get_or_create_collection("langchain")
     embeddings = OllamaEmbeddings(
-        base_url=f"https://{os.environ.get('OLLAMA_URL')}", model="nomic-embed-text"
+        base_url=f"https://{os.environ.get('OLLAMA_HOST')}", model="nomic-embed-text"
     )
+
+    chroma_client.get_or_create_collection("notion")
+
     vector_store = Chroma(
         client=chroma_client,
-        collection_name="langchain",
+        collection_name="notion",
         embedding_function=embeddings,
     )
     return vector_store
+
+
+def split_text(text, max_tokens=300, overlap=50):
+    tokenizer = tiktoken.get_encoding("cl100k_base")  # .encoding_for_model
+    tokens = tokenizer.encode(text)
+    chunks = []
+    for i in range(0, len(tokens), max_tokens - overlap):
+        chunk = tokens[i : i + max_tokens]
+        chunks.append(tokenizer.decode(chunk))
+    return chunks
+
+
+def delete_document(vector_store, notion_id):
+    children = vector_store.get(where={"notion_id": {"$eq": notion_id}})
+    logger.info(f"Deleting {len(children['documents'])} children...")
+    for child in children["documents"]:
+        logger.info(f"Deleting child: {child.id}")
+        vector_store.delete(ids=[child.id])
+
+
+def update_document(vector_store, notion_id, markdown_content, title):
+    chunks = split_text(markdown_content)
+    logger.info(f"Split into {len(chunks)} chunks.")
+
+    for index, chunk in enumerate(chunks):
+        logger.debug(f"Inserting chunk #{index}...")
+        document = Document(
+            page_content=chunk,
+            metadata={
+                "title": title,
+                "last_updated": str(datetime.now()),
+                "notion_id": notion_id,
+                "chunk_number": index,
+            },
+            id=str(uuid.uuid4()),
+        )
+
+        vector_store.add_documents([document])
+
+    logger.info("Chroma document has been added.")
+
+
+def should_skip(page: str) -> bool:
+    return "#skip" in page
 
 
 if __name__ == "__main__":
@@ -144,7 +192,7 @@ if __name__ == "__main__":
     data = {
         "query": "",
         "filter": {"value": "page", "property": "object"},
-        "sort": {"direction": "ascending", "timestamp": "last_edited_time"},
+        "sort": {"direction": "ascending", "date": "last_edited_time"},
     }
     response = requests.post(url, headers=headers, data=data)
     print(NOTION_API_TOKEN)
@@ -162,7 +210,7 @@ if __name__ == "__main__":
     for notion_doc in response.json().get("results", []):
 
         notion_id = notion_doc.get("id")
-        results = vector_store.get(ids=notion_id)
+        results = vector_store.get(where={"notion_id": {"$eq": notion_id}})
         count = len(results["documents"])
         logger.info(f"Chroma document count matching NotionID: {count}")
 
@@ -184,31 +232,33 @@ if __name__ == "__main__":
         if content:
             for block in content.get("results", []):
                 markdown_content += print_block_content(block) + "\n"
+
         markdown_content = markdown_content.strip()
+        markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
+
         if len(markdown_content) == 0:
-            vector_store.delete(ids=[notion_id])
             logger.warning(
                 f"Removing empty document from Chroma: ID: {notion_id}, Title: {title}"
             )
+            delete_document(vector_store, notion_id)
             continue
-            # TODO: And remove from database if it exists
 
-        if count > 1:
-            raise Exception(
-                "Multiple documents with the same Notion ID found in Chroma. Exiting."
+        if should_skip(markdown_content):
+            logger.warning(
+                f"Removing document marked to be skipped from Chroma: ID: {notion_id}, Title: {title}"
             )
+            delete_document(vector_store, notion_id)
+            continue
+
+        # if count > 1:
+        #     raise Exception(
+        #         "Multiple documents with the same Notion ID found in Chroma. Exiting."
+        #     )
 
         if count == 0:
             logger.info("Document does not exist in Chroma, preparing to insert...")
-            document = Document(
-                page_content=markdown_content,
-                metadata={"title": title, "last_updated": str(datetime.now())},
-                id=notion_id,
-            )
 
-            vector_store.add_documents([document])
-
-            logger.info("Chroma document has been added.")
+            update_document(vector_store, notion_id, markdown_content, title)
         else:
             logger.info("Document exists in Chroma. Checking for updates in notion...")
             document = results["documents"][0]
@@ -227,16 +277,11 @@ if __name__ == "__main__":
 
             if chroma_last_updated < notion_last_updated:
                 logger.info("Notion document has been updated.")
-                document = Document(
-                    page_content=markdown_content,
-                    metadata={
-                        "title": title,
-                        "last_updated": str(datetime.now()),
-                    },
-                    id=notion_id,
-                )
-                logger.info("Updating Chroma document...")
-                vector_store.update_document(document_id=notion_id, document=document)
+
+                delete_document(vector_store, notion_id)
+
+                update_document(vector_store, notion_id, markdown_content, title)
+
                 logger.info("Chroma document has been updated.")
             else:
                 logger.info("Chroma document is up to date.")

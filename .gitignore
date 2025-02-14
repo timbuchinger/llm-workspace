@@ -174,3 +174,5 @@ uv.lock
 
 node_modules
 claude_desktop_config.json
+
+.aider*
