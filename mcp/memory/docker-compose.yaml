@@ -1,0 +1,8 @@
+services:
+  mongo-container:
+    image: mongo:6.0.18
+    environment:
+        - MONGO_INITDB_ROOT_USERNAME=test
+        - MONGO_INITDB_ROOT_PASSWORD=test
+    ports:
+      - "27017:27017"
