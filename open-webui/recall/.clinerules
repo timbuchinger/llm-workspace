@@ -1,0 +1,118 @@
+# Project Rules and Patterns
+
+## Directory Structure
+- service/: Main API service implementation
+- pipeline/: Data processing pipeline components
+- memory-bank/: Project documentation and context
+
+## Code Patterns
+
+### Python Patterns
+1. FastAPI endpoint decoration
+   - Use async functions
+   - Include type hints
+   - Implement Pydantic models for requests
+
+2. Logging Practices
+   - Use @log_function_call decorator for key functions
+   - Implement custom filters when needed
+   - Follow YAML logging configuration
+
+3. Environment Management
+   - Use python-dotenv for configuration
+   - SSL configuration via environment variables
+   - Service host/port configuration
+
+### API Patterns
+1. Health Check
+   - /healthz endpoint required
+   - Simple status:ok response
+   - Filtered from main logs
+
+2. Request Models
+   - Use Pydantic BaseModel
+   - Include Optional fields where appropriate
+   - Define clear field types
+
+3. Response Format
+   - Consistent JSON structure
+   - Include status codes
+   - Error handling patterns
+
+## Integration Patterns
+
+### ChromaDB
+1. Client Configuration
+   - HTTP client with token auth
+   - SSL configuration option
+   - Port specification
+
+2. Collection Management
+   - Single collection per context
+   - Metadata with search results
+   - Distance scoring included
+
+### Ollama
+1. Embedding Generation
+   - nomic-embed-text model
+   - Protocol based on SSL setting
+   - Configurable base URL
+
+## Development Workflow
+
+### Code Organization
+1. Separate concerns:
+   - API endpoints in server.py
+   - Models in dedicated files
+   - Utility functions grouped logically
+
+2. Configuration:
+   - Environment variables in .env
+   - Logging config in logging.yaml
+   - Requirements in requirements.txt
+
+### Testing Structure
+1. Unit tests for core functionality
+2. Integration tests for endpoints
+3. Performance testing for search
+4. Health check validation
+
+## Project Preferences
+
+### Code Style
+1. Async/await for endpoint handlers
+2. Type hints required
+3. Pydantic for data validation
+4. Decorator-based logging
+
+### Error Handling
+1. Graceful degradation
+2. Detailed error logging
+3. Clear error responses
+4. Environment validation
+
+### Documentation
+1. Memory bank updates for changes
+2. Clear API documentation
+3. Environment setup guide
+4. Integration instructions
+
+## Learning Notes
+
+### Key Insights
+1. ChromaDB requires specific authentication
+2. Ollama embedding model selection
+3. RAG template importance
+4. Collection management strategy
+
+### Challenges
+1. Embedding performance considerations
+2. Collection scaling approach
+3. Integration complexity
+4. Performance optimization
+
+### Solutions
+1. Use of Langchain wrapper
+2. Token-based authentication
+3. Template-based RAG
+4. Efficient logging filters

@@ -1,0 +1,37 @@
+### Task:
+Respond to the user query when no matching documents were found in the knowledge base, while providing context about the search and suggestions for next steps.
+
+### Guidelines:
+- Clearly explain that no matching documents were found
+- Provide transparency about the search parameters
+- Suggest constructive next steps for the user
+- If you can answer from your general knowledge, explain this to the user
+- Respond in the same language as the user's query
+- Keep the tone helpful and solution-oriented
+
+### Context Structure:
+The context below provides information about the search attempt and suggestions for proceeding. Use this to frame your response to the user.
+
+<context>
+No relevant documents were found in the knowledge base matching your query.
+
+Search details:
+- Collections searched: {{COLLECTIONS}}
+- Number of results requested: {{N_RESULTS}}
+
+The AI assistant will attempt to answer based on its general knowledge, or you may try:
+- Rephrasing your question
+- Using different keywords
+- Being more specific in your query
+</context>
+
+<user_query>
+{{QUERY}}
+</user_query>
+
+### Output:
+Provide a helpful response that:
+1. Acknowledges the lack of matching documents
+2. Offers relevant suggestions for proceeding
+3. If possible, provides an answer based on general knowledge
+4. Maintains a constructive and helpful tone
