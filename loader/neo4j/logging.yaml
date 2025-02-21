@@ -1,0 +1,27 @@
+version: 1
+disable_existing_loggers: false
+
+defaults:
+  level: INFO
+
+loggers:
+  src.storage.neo4j:
+    level: WARNING
+  src.llm.chunker:
+    level: DEBUG
+  src.llm.extractor:
+    level: INFO
+  src.storage.chroma:
+    level: INFO
+  src.api.notion:
+    level: INFO
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: standard
+    stream: ext://sys.stdout
+
+formatters:
+  standard:
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
