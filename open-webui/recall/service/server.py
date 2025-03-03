@@ -3,14 +3,15 @@ import os
 import uuid
 from datetime import datetime
 from functools import wraps
-from typing import Optional
+from typing import List, Optional
 
 import chromadb
 from chromadb.config import Settings
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from langchain_chroma import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings
+from pinecone import Pinecone
 from pydantic import BaseModel
 
 load_dotenv()
@@ -59,6 +60,12 @@ class MemorySearchRequest(BaseModel):
     query: str
     n_results: Optional[int] = 3
     collections: list[str]
+
+
+class PineconeMemorySearchRequest(BaseModel):
+    query: str
+    n_results: Optional[int] = 3
+    index: str
 
 
 @app.get("/healthz")
@@ -201,3 +208,76 @@ async def get_prompt(search_request: MemorySearchRequest):
         f"Returning {len(results)} documents from {len(search_request.collections)} collections"
     )
     return {"documents": results}
+
+
+@log_function_call
+@app.post("/search-similar-pinecone")
+async def get_prompt_pinecone(search_request: PineconeMemorySearchRequest):
+    logger.info(f"Search request: {search_request.query}")
+
+    # Initialize Pinecone client
+    api_key = os.environ.get("PINECONE_API_KEY")
+    pinecone_client = Pinecone(api_key=api_key)
+    pinecone_host = f"https://{search_request.index}{os.environ.get('PINECONE_HOST')}"
+    logger.info(f"Connecting to Pinecone at {pinecone_host}")
+    logger.info(f"API key: {api_key}")
+    pinecone_index = pinecone_client.Index(
+        search_request.index,
+        host=pinecone_host,
+    )
+    pinecone_namespace = os.environ.get("PINECONE_NAMESPACE", "notion")
+
+    # Get embeddings using existing Ollama setup
+    protocol = (
+        "https"
+        if os.environ.get("OLLAMA_USE_SSL", "false").lower() == "true"
+        else "http"
+    )
+
+    logger.debug("Setting up embeddings...")
+    embeddings = OllamaEmbeddings(
+        model="nomic-embed-text",
+        base_url=f"{protocol}://{os.environ.get('OLLAMA_HOST')}:{os.environ.get('OLLAMA_PORT', 11434)}",
+    )
+
+    # Generate embedding for query
+    query_embedding = embeddings.embed_query(search_request.query)
+
+    try:
+        # Query Pinecone
+        results = pinecone_index.query(
+            namespace=pinecone_namespace,
+            vector=query_embedding,
+            top_k=search_request.n_results,
+            include_metadata=True,
+        )
+
+        # Process results to match Chroma response format
+        formatted_results = []
+        for match in results.matches:
+            metadata = match.metadata if match.metadata else {}
+            result = {
+                "id": metadata.get("notion_id", "unknown"),
+                "content": metadata.get("text", ""),
+                "score": float(match.score) if match.score is not None else 1.0,
+                "metadata": {
+                    "title": metadata.get("title", ""),
+                    "summary": metadata.get("summary", ""),
+                    "last_modified": metadata.get("last_modified", ""),
+                    "chunk_number": metadata.get("chunk_number", 1),
+                    "total_chunks": metadata.get("total_chunks", 1),
+                    "embedding_model": metadata.get("embedding_model", ""),
+                    "embedding_provider": metadata.get("embedding_provider", ""),
+                },
+                "source": metadata.get("notion_id", "unknown"),
+            }
+            formatted_results.append(result)
+
+        logger.info(
+            f"Returning {len(formatted_results)} documents."  # TODO: Add list of namespaces queried
+        )
+        return {"documents": formatted_results}
+
+    except Exception as e:
+        logger.error(f"Error querying Pinecone: {e}")
+        return {"documents": []}
