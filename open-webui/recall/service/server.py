@@ -225,8 +225,6 @@ async def get_prompt_pinecone(search_request: PineconeMemorySearchRequest):
         search_request.index,
         host=pinecone_host,
     )
-    pinecone_namespace = os.environ.get("PINECONE_NAMESPACE", "notion")
-
     # Get embeddings using existing Ollama setup
     protocol = (
         "https"
@@ -243,38 +241,88 @@ async def get_prompt_pinecone(search_request: PineconeMemorySearchRequest):
     # Generate embedding for query
     query_embedding = embeddings.embed_query(search_request.query)
 
-    try:
-        # Query Pinecone
-        results = pinecone_index.query(
-            namespace=pinecone_namespace,
-            vector=query_embedding,
-            top_k=search_request.n_results,
-            include_metadata=True,
-        )
+    def format_result(match, namespace):
+        # Start with base result structure
+        result = {
+            "id": match.id,
+            "score": float(match.score) if match.score is not None else 1.0,
+            "source": namespace,  # Include source namespace
+        }
 
-        # Process results to match Chroma response format
-        formatted_results = []
-        for match in results.matches:
-            metadata = match.metadata if match.metadata else {}
-            result = {
-                "id": metadata.get("notion_id", "unknown"),
-                "content": metadata.get("text", ""),
-                "score": float(match.score) if match.score is not None else 1.0,
-                "metadata": {
-                    "title": metadata.get("title", ""),
-                    "summary": metadata.get("summary", ""),
-                    "last_modified": metadata.get("last_modified", ""),
-                    "chunk_number": metadata.get("chunk_number", 1),
-                    "total_chunks": metadata.get("total_chunks", 1),
-                    "embedding_model": metadata.get("embedding_model", ""),
-                    "embedding_provider": metadata.get("embedding_provider", ""),
-                },
-                "source": metadata.get("notion_id", "unknown"),
-            }
-            formatted_results.append(result)
+        # Handle metadata carefully
+        if match.metadata:
+            # Add content from text field if it exists
+            if "text" in match.metadata:
+                result["content"] = match.metadata["text"]
+
+            # Build metadata object only with fields that exist
+            metadata = {}
+            for field in ["title", "summary", "last_modified", "chunk_number",
+                         "total_chunks", "embedding_model", "embedding_provider",
+                         "notion_id"]:
+                if field in match.metadata and match.metadata[field]:
+                    metadata[field] = match.metadata[field]
+
+            # Only include metadata if we have any
+            if metadata:
+                result["metadata"] = metadata
+
+            # If no content was found in text field, check other potential fields
+            if "content" not in result:
+                # Look for content in alternative fields
+                content_fields = ["content", "body", "text", "description"]
+                for field in content_fields:
+                    if field in match.metadata and match.metadata[field]:
+                        result["content"] = match.metadata[field]
+                        break
+                # If still no content, use empty string
+                if "content" not in result:
+                    result["content"] = ""
+        else:
+            # Handle case with no metadata
+            result["content"] = ""
+            result["metadata"] = {}
+
+        return result
+
+    try:
+        # Get list of all namespaces in index
+        stats = pinecone_index.describe_index_stats()
+        namespaces = list(stats.namespaces.keys())
+
+        logger.info(f"Found {len(namespaces)} namespaces: {namespaces}")
+
+        # Search across all namespaces
+        all_results = []
+        namespace_counts = {}
+
+        for namespace in namespaces:
+            try:
+                results = pinecone_index.query(
+                    namespace=namespace,
+                    vector=query_embedding,
+                    top_k=search_request.n_results,
+                    include_metadata=True
+                )
+
+                namespace_results = results.matches
+                namespace_counts[namespace] = len(namespace_results)
+                all_results.extend((match, namespace) for match in namespace_results)
+
+            except Exception as e:
+                logger.error(f"Error querying namespace {namespace}: {e}")
+                continue
+
+        # Sort by score (higher is better) and get top N results
+        all_results.sort(key=lambda x: x[0].score if x[0].score is not None else 0.0, reverse=True)
+        top_results = all_results[:search_request.n_results]
+
+        # Format results
+        formatted_results = [format_result(match, ns) for match, ns in top_results]
 
         logger.info(
-            f"Returning {len(formatted_results)} documents."  # TODO: Add list of namespaces queried
+            f"Returning {len(formatted_results)} documents from {len(namespaces)} namespaces. "
+            f"Results per namespace: {namespace_counts}"
         )
         return {"documents": formatted_results}
 

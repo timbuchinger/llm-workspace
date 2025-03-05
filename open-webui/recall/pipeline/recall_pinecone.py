@@ -18,14 +18,14 @@ import requests
 from pydantic import BaseModel
 
 
-def get_collections(user: Optional[dict]) -> Tuple[str, str]:
-    """Extract location from user name brackets and return appropriate collection names."""
-    if user and "name" in user:
-        match = re.search(r"\[(.*?)\]", user["name"].lower())
-        if match:
-            location = match.group(1)
-            return f"memories-{location}", f"notion-{location}"
-    return "memories", "notion"
+# def get_collections(user: Optional[dict]) -> Tuple[str, str]:
+#     """Extract location from user name brackets and return appropriate collection names."""
+#     if user and "name" in user:
+#         match = re.search(r"\[(.*?)\]", user["name"].lower())
+#         if match:
+#             location = match.group(1)
+#             return f"memories-{location}", f"notion-{location}"
+#     return "memories", "notion"
 
 
 def get_pinecone_index(user: Optional[dict]) -> str:
