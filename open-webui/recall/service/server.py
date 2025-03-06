@@ -62,6 +62,11 @@ class MemorySearchRequest(BaseModel):
     collections: list[str]
 
 
+class PineconeMemoryAddRequest(BaseModel):
+    memory: str
+    index: str
+
+
 class PineconeMemorySearchRequest(BaseModel):
     query: str
     n_results: Optional[int] = 3
@@ -257,9 +262,16 @@ async def get_prompt_pinecone(search_request: PineconeMemorySearchRequest):
 
             # Build metadata object only with fields that exist
             metadata = {}
-            for field in ["title", "summary", "last_modified", "chunk_number",
-                         "total_chunks", "embedding_model", "embedding_provider",
-                         "notion_id"]:
+            for field in [
+                "title",
+                "summary",
+                "last_modified",
+                "chunk_number",
+                "total_chunks",
+                "embedding_model",
+                "embedding_provider",
+                "notion_id",
+            ]:
                 if field in match.metadata and match.metadata[field]:
                     metadata[field] = match.metadata[field]
 
@@ -297,16 +309,20 @@ async def get_prompt_pinecone(search_request: PineconeMemorySearchRequest):
         namespace_counts = {}
 
         for namespace in namespaces:
+            logger.info(f"Querying namespace {namespace}")
             try:
                 results = pinecone_index.query(
                     namespace=namespace,
                     vector=query_embedding,
                     top_k=search_request.n_results,
-                    include_metadata=True
+                    include_metadata=True,
                 )
 
                 namespace_results = results.matches
                 namespace_counts[namespace] = len(namespace_results)
+                logger.info(
+                    f"Found {len(namespace_results)} results in namespace {namespace}"
+                )
                 all_results.extend((match, namespace) for match in namespace_results)
 
             except Exception as e:
@@ -314,8 +330,10 @@ async def get_prompt_pinecone(search_request: PineconeMemorySearchRequest):
                 continue
 
         # Sort by score (higher is better) and get top N results
-        all_results.sort(key=lambda x: x[0].score if x[0].score is not None else 0.0, reverse=True)
-        top_results = all_results[:search_request.n_results]
+        all_results.sort(
+            key=lambda x: x[0].score if x[0].score is not None else 0.0, reverse=True
+        )
+        top_results = all_results[: search_request.n_results]
 
         # Format results
         formatted_results = [format_result(match, ns) for match, ns in top_results]
@@ -329,3 +347,62 @@ async def get_prompt_pinecone(search_request: PineconeMemorySearchRequest):
     except Exception as e:
         logger.error(f"Error querying Pinecone: {e}")
         return {"documents": []}
+
+
+@log_function_call
+@app.post("/add-memory-pinecone")
+async def add_memory_pinecone(memory_request: PineconeMemoryAddRequest):
+    logger.info(f"Adding memory: {memory_request.memory}")
+
+    # Initialize Pinecone client
+    api_key = os.environ.get("PINECONE_API_KEY")
+    pinecone_client = Pinecone(api_key=api_key)
+    pinecone_host = f"https://{memory_request.index}{os.environ.get('PINECONE_HOST')}"
+    logger.info(f"Connecting to Pinecone at {pinecone_host}")
+    pinecone_index = pinecone_client.Index(
+        memory_request.index,
+        host=pinecone_host,
+    )
+
+    # Get embeddings using existing Ollama setup
+    protocol = (
+        "https"
+        if os.environ.get("OLLAMA_USE_SSL", "false").lower() == "true"
+        else "http"
+    )
+
+    logger.debug("Setting up embeddings...")
+    embeddings = OllamaEmbeddings(
+        model="nomic-embed-text",
+        base_url=f"{protocol}://{os.environ.get('OLLAMA_HOST')}:{os.environ.get('OLLAMA_PORT', 11434)}",
+    )
+
+    try:
+        # Generate embedding for memory
+        memory_embedding = embeddings.embed_query(memory_request.memory)
+
+        # Create unique ID and timestamp
+        doc_id = str(uuid.uuid4())
+        current_time = datetime.now().isoformat()
+
+        # Insert into Pinecone
+        pinecone_index.upsert(
+            vectors=[
+                {
+                    "id": doc_id,
+                    "values": memory_embedding,
+                    "metadata": {
+                        "text": memory_request.memory,
+                        "date_added": current_time,
+                    },
+                }
+            ],
+            namespace="openwebui",
+        )
+
+        logger.info(f"Successfully added memory with ID: {doc_id}")
+        return {"status": "ok", "id": doc_id}
+
+    except Exception as e:
+        logger.error(f"Error adding memory to Pinecone: {e}")
+        return {"status": "error", "message": str(e)}
