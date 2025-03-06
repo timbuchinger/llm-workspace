@@ -167,7 +167,7 @@ class Tools:
                 )
             if self.valves.unpack_responses:
                 logger.debug("Unpacking response")
-                return response.json()["message"]
+                return response.json()["status"]
             else:
                 logger.warning("Packing response")
                 return response.json()
